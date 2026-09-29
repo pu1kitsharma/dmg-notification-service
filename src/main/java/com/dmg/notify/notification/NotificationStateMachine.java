@@ -62,6 +62,20 @@ public class NotificationStateMachine {
         });
     }
 
+    /** DEAD -> PENDING: manual re-drive. Attempt numbers keep counting; the retry budget restarts from here. */
+    @Transactional
+    public Notification replay(String id, Long tenantId) {
+        Notification n = notifications.findByIdAndTenantId(id, tenantId)
+                .orElseThrow(() -> new ApiException.NotFound("Notification " + id + " not found"));
+        if (n.getStatus() != NotificationStatus.DEAD) {
+            throw new ApiException.Conflict("Only DEAD notifications can be replayed (current: " + n.getStatus() + ")");
+        }
+        n.setAttemptBase(n.getAttemptCount());
+        n.setNextAttemptAt(clock.instant());
+        transition(n, NotificationStatus.PENDING, "replayed by tenant admin");
+        return n;
+    }
+
     @Transactional
     public Notification cancel(String id, Long tenantId) {
         Notification n = notifications.findByIdAndTenantId(id, tenantId)

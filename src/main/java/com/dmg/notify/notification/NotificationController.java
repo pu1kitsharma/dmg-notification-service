@@ -37,6 +37,12 @@ public class NotificationController {
         return service.list(TenantContext.requireTenantId(), status, page, size).map(NotificationResponse::from);
     }
 
+    /** Re-drive a DEAD notification (e.g. after the provider outage that killed it is fixed). */
+    @PostMapping("/{id}/replay")
+    public NotificationResponse replay(@PathVariable String id) {
+        return NotificationResponse.from(service.replay(TenantContext.requireTenantId(), id));
+    }
+
     @PostMapping("/{id}/cancel")
     public NotificationResponse cancel(@PathVariable String id) {
         return NotificationResponse.from(service.cancel(TenantContext.requireTenantId(), id));

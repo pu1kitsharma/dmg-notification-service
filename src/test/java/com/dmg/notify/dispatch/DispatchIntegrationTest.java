@@ -186,6 +186,37 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void deadNotificationCanBeReplayedAndGetsAFreshRetryBudget() throws Exception {
+        Tenant t = newTenant(1000, 1000, 2);
+        email.transientFailuresPerKey = 2; // outage: first two provider calls fail
+        Notification n = submit(t, "a@example.com");
+        drain(15);
+        assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.DEAD);
+
+        notificationService.replay(t.getId(), n.getId()); // outage over
+        drain(10);
+
+        assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.SENT);
+        assertThat(email.successes.get(n.getId()).get()).isEqualTo(1);
+        assertThat(attempts.findByNotificationIdOrderByIdAsc(n.getId())).extracting(a -> a.getAttemptNo())
+                .containsExactly(1, 2, 3);
+        assertThat(events.findByNotificationIdOrderByIdAsc(n.getId()))
+                .extracting(NotificationEvent::getReason).anyMatch(r -> r.contains("replayed"));
+    }
+
+    @Test
+    void replayedNotificationGetsFullBudgetBeforeDyingAgain() throws Exception {
+        Tenant t = newTenant(1000, 1000, 2);
+        Notification n = submit(t, "fail-always@example.com");
+        drain(15);
+        notificationService.replay(t.getId(), n.getId());
+        drain(15);
+
+        assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.DEAD);
+        assertThat(email.calls.get(n.getId()).get()).isEqualTo(4); // 2 + 2, not 3
+    }
+
+    @Test
     void cancelledNotificationIsNeverSent() throws Exception {
         Tenant t = newTenant(1000, 1000, 3);
         Notification n = submitAt(t, "a@example.com", Instant.now().plusSeconds(60));

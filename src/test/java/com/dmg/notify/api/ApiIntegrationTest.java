@@ -138,6 +138,18 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void replayIsOnlyForDeadAndTenantScoped() throws Exception {
+        RequestPostProcessor a = createTenant("rp-a");
+        RequestPostProcessor b = createTenant("rp-b");
+        createTemplate(a);
+        String id = json.readTree(mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content(SUBMIT))
+                .andReturn().getResponse().getContentAsString()).get("id").asText();
+
+        mvc.perform(post("/api/v1/notifications/" + id + "/replay").with(a)).andExpect(status().isConflict()); // still PENDING
+        mvc.perform(post("/api/v1/notifications/" + id + "/replay").with(b)).andExpect(status().isNotFound());
+    }
+
+    @Test
     void templatesAreVersioned() throws Exception {
         RequestPostProcessor a = createTenant("ver");
         createTemplate(a);

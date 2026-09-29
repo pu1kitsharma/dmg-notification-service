@@ -21,6 +21,7 @@
 `PROCESSING → PENDING` (transient fail / lease expiry, attempt < max, backoff; also released when pool saturated)
 `PROCESSING → DEAD` (permanent fail / attempts exhausted)
 `PENDING → CANCELLED` (tenant cancels before pickup)
+`DEAD → PENDING` (tenant replays; `attempt_base` = attempts so far, budget restarts, audit event written)
 
 ## Data model
 tenants, tenant_channel_config, templates(version), notifications, notification_attempts, notification_events, global_limits, users.

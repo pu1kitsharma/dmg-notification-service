@@ -114,6 +114,8 @@ public class NotificationService {
 
     public Notification cancel(long tenantId, String id) { return state.cancel(id, tenantId); }
 
+    public Notification replay(long tenantId, String id) { return state.replay(id, tenantId); }
+
     private static String normalizeKey(String key) {
         if (key == null || key.isBlank()) return null;
         if (key.length() > 100) throw new ApiException.BadRequest("Idempotency-Key longer than 100 characters");

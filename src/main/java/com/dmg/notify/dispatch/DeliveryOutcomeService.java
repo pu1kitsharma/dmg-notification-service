@@ -61,7 +61,7 @@ public class DeliveryOutcomeService {
         int maxAttempts = tenants.findById(n.getTenantId()).map(t -> t.getMaxAttempts()).orElse(1);
         if (permanent) {
             state.transition(n, NotificationStatus.DEAD, "permanent failure: " + error);
-        } else if (attemptNo >= maxAttempts) {
+        } else if (attemptNo - n.getAttemptBase() >= maxAttempts) {
             state.transition(n, NotificationStatus.DEAD, "retries exhausted after " + attemptNo + " attempts: " + error);
         } else {
             n.setNextAttemptAt(now.plus(retryPolicy.delayAfter(attemptNo)));

@@ -14,7 +14,8 @@ public enum NotificationStatus {
         return switch (this) {
             case PENDING -> EnumSet.of(PROCESSING, CANCELLED);
             case PROCESSING -> EnumSet.of(SENT, PENDING, DEAD);
-            case SENT, DEAD, CANCELLED -> EnumSet.noneOf(NotificationStatus.class);
+            case DEAD -> EnumSet.of(PENDING); // manual replay only
+            case SENT, CANCELLED -> EnumSet.noneOf(NotificationStatus.class);
         };
     }
 }
