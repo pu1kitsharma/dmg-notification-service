@@ -326,7 +326,9 @@ check "tenant b's list does not contain a's ids" "$(tapi "$T_b" "$BASE/api/v1/no
 section "20. app log has no unhandled errors"
 if [ -n "${APP_LOG:-}" ]; then
   check "no 'Unhandled error' entries in the app log" "$(grep -c 'Unhandled error' "$APP_LOG")" 0
-  check "no ERROR-level entries in the app log" "$(grep -c ' ERROR ' "$APP_LOG")" 0
+  # Postgres/Hibernate logs the unique-constraint hit of the concurrent same-key race (section 7) at ERROR even though
+  # the service handles it and replays the winner; that one known line is ignored, anything else is a failure.
+  check "no unexpected ERROR-level entries in the app log" "$(grep ' ERROR ' "$APP_LOG" | grep -vc 'uq_notification_idem')" 0
 else
   echo "  skip  log checks (set APP_LOG=<app log path> to enable)"
 fi
