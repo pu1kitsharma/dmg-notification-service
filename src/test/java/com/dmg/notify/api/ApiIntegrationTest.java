@@ -79,6 +79,20 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void openApiDocumentAndSwaggerUiArePublicAndDescribeTheApi() throws Exception {
+        String doc = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        for (String path : new String[] {"/api/v1/notifications", "/api/v1/notifications/batch", "/api/v1/notifications/{id}/replay",
+                "/api/v1/templates/preview", "/api/v1/tenants", "/api/v1/platform/reports/delivery", "/api/v1/reports/delivery"}) {
+            assertThat(json.readTree(doc).path("paths").has(path)).as(path).isTrue();
+        }
+        assertThat(json.readTree(doc).at("/components/securitySchemes/basicAuth/scheme").asText()).isEqualTo("basic");
+        // Swagger UI is served (redirects to its index), and the API itself is still protected
+        mvc.perform(get("/swagger-ui.html")).andExpect(status().is3xxRedirection());
+        mvc.perform(get("/api/v1/notifications")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void templatePreviewRendersWithoutCreatingAnything() throws Exception {
         RequestPostProcessor a = createTenant("prev");
         RequestPostProcessor b = createTenant("prev-b");

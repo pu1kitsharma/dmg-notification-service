@@ -93,6 +93,12 @@ check "GET template by id -> 200" "$(tcode "$T_a" $BASE/api/v1/templates/$T1)" 2
 check "other tenant cannot GET template -> 404" "$(tcode "$T_b" $BASE/api/v1/templates/$T1)" 404
 mk_template "$T_b" welcome EMAIL 'Hi {{name}}' 'Welcome {{name}}' >/dev/null
 
+# concurrent creates of the same template name: all succeed with distinct consecutive versions (used to 500)
+for i in $(seq 1 10); do (tapi "$T_a" -X POST $BASE/api/v1/templates -d "{\"name\":\"race-tpl\",\"channel\":\"EMAIL\",\"subject\":\"s$i\",\"body\":\"b$i\"}" -w ' %{http_code}\n' >> /tmp/e2e-tpl-$RUN.txt) & done; wait
+check "10 concurrent template creates: all 201 (no 500s)" "$(awk '{print $NF}' /tmp/e2e-tpl-$RUN.txt | sort | uniq -c | tr -s ' ' | tr '\n' ';')" " 10 201;"
+check "their versions are exactly 1..10" "$(sed 's/ [0-9]*$//' /tmp/e2e-tpl-$RUN.txt | python3 -c "import sys,json; print(sorted(json.loads(l)['version'] for l in sys.stdin))")" "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]"
+rm -f /tmp/e2e-tpl-$RUN.txt
+
 # --- 4. send, delivery, audit trail ------------------------------------------------------------------
 section "4. send + delivery + audit trail"
 ID1=$(send "$T_a" ada@example.com)
@@ -127,6 +133,14 @@ check "unknown channel value -> 400" "$(tcode "$T_a" -X POST $BASE/api/v1/notifi
 LONGKEY=$(python3 -c "print('k'*101)")
 check "Idempotency-Key > 100 chars -> 400" "$(tcode "$T_a" -H "Idempotency-Key: $LONGKEY" -X POST $BASE/api/v1/notifications -d "{$N,\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"x\"}}")" 400
 check "scheduledAt > 365 days ahead -> 400" "$(tcode "$T_a" -X POST $BASE/api/v1/notifications -d "{$N,\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"x\"},\"scheduledAt\":\"2099-01-01T00:00:00Z\"}")" 400
+BIGVAR=$(python3 -c "print('z'*4100)")
+check "rendered body over 4000 chars -> 422 (not 500)" "$(tcode "$T_a" -X POST $BASE/api/v1/notifications -d "{$N,\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"$BIGVAR\"}}")" 422
+check "rendered body over 4000 chars with Idempotency-Key -> 422 (not 500)" "$(tcode "$T_a" -H "Idempotency-Key: big-$RUN" -X POST $BASE/api/v1/notifications -d "{$N,\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"$BIGVAR\"}}")" 422
+ENUMERR=$(tapi "$T_a" -X POST $BASE/api/v1/notifications -d '{"channel":"FAX","templateName":"welcome","recipient":"x"}')
+check "bad enum -> 400 naming the field and allowed values" "$(echo "$ENUMERR" | jf '"channel" in d["detail"] and "EMAIL" in d["detail"]')" True
+check "bad enum message leaks no class names" "$(echo "$ENUMERR" | grep -c 'com\.dmg\|java\.\|Cannot deserialize')" 0
+check "syntax error -> generic 'Malformed JSON', no Jackson internals" "$(tapi "$T_a" -X POST $BASE/api/v1/notifications -d '{oops' | jf '"Malformed JSON" in d["detail"] and "fasterxml" not in d["detail"]')" True
+check "bad query enum -> 400 naming the parameter" "$(tapi "$T_a" "$BASE/api/v1/notifications?status=WAT" | jf '"status" in d["detail"] and "com.dmg" not in d["detail"]')" True
 check "GET unknown notification -> 404" "$(tcode "$T_a" $BASE/api/v1/notifications/does-not-exist)" 404
 
 # --- 7. idempotency ---------------------------------------------------------------------------------
@@ -246,6 +260,11 @@ mk_template "$T_d" welcome EMAIL 'Hi {{name}}' 'Welcome {{name}}' >/dev/null
 DQ=$(send "$T_d" dq@example.com ",\"scheduledAt\":\"$(future 3)\"")
 check "deactivate -> 200" "$(code -u "$PLATFORM" -H "$H" -X PATCH $BASE/api/v1/tenants/$ID_d -d '{"active":false}')" 200
 check "submit while deactivated -> 403" "$(tcode "$T_d" -X POST $BASE/api/v1/notifications -d "{$N,\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"x\"}}")" 403
+check "deactivated: template create -> 403" "$(tcode "$T_d" -X POST $BASE/api/v1/templates -d '{"name":"x","channel":"EMAIL","body":"b"}')" 403
+check "deactivated: channel config change -> 403" "$(tcode "$T_d" -X PUT $BASE/api/v1/channels/EMAIL -d '{"enabled":false}')" 403
+check "deactivated: cancel -> 403" "$(tcode "$T_d" -X POST $BASE/api/v1/notifications/$DQ/cancel)" 403
+check "deactivated: batch -> 403" "$(tcode "$T_d" -X POST $BASE/api/v1/notifications/batch -d '{"items":[]}')" 403
+check "deactivated: reads still work (list, report, template)" "$(tcode "$T_d" $BASE/api/v1/notifications)/$(tcode "$T_d" $BASE/api/v1/reports/delivery)/$(tcode "$T_d" $BASE/api/v1/templates)" "200/200/200"
 sleep 6
 check "queued row is not sent while deactivated" "$(nstatus "$T_d" $DQ)" PENDING
 check "reactivate -> 200" "$(code -u "$PLATFORM" -H "$H" -X PATCH $BASE/api/v1/tenants/$ID_d -d '{"active":true}')" 200
@@ -321,6 +340,32 @@ check "report is tenant-scoped (b's total == b's own notification count)" "$(tap
 section "19. cross-tenant isolation"
 check "tenant b cannot GET tenant a's notification -> 404" "$(tcode "$T_b" $BASE/api/v1/notifications/$ID1)" 404
 check "tenant b's list does not contain a's ids" "$(tapi "$T_b" "$BASE/api/v1/notifications?size=100" | jf 'not any(n["id"]=="'$ID1'" for n in d["content"])')" True
+
+# --- 19b. template preview ---------------------------------------------------------------------------
+section "19b. template preview (dry run)"
+TPL=$(tapi "$T_a" $BASE/api/v1/templates | jf '[t["id"] for t in d if t["name"]=="welcome" and t["channel"]=="EMAIL" and t["version"]==2][0]')
+PV=$(tapi "$T_a" -X POST $BASE/api/v1/templates/$TPL/preview -d '{"variables":{"name":"Grace","typo":"x"}}')
+check "preview of a saved template renders" "$(echo "$PV" | jf 'd["body"]')" "Hey Grace"
+check "preview lists variables used and unused" "$(echo "$PV" | jf '[d["variablesUsed"], d["unusedVariables"], d["withinLimits"]]')" "[['name'], ['typo'], True]"
+check "preview missing variable -> 422" "$(tcode "$T_a" -X POST $BASE/api/v1/templates/$TPL/preview -d '{}')" 422
+check "preview of another tenant's template -> 404" "$(tcode "$T_b" -X POST $BASE/api/v1/templates/$TPL/preview -d '{"variables":{"name":"x"}}')" 404
+DP=$(tapi "$T_a" -X POST $BASE/api/v1/templates/preview -d "{\"subject\":\"S {{x}}\",\"body\":\"B {{x}} {{y}}\",\"variables\":{\"x\":\"1\",\"y\":\"$BIGVAR\"}}")
+check "draft preview flags text over the limits" "$(echo "$DP" | jf '[d["bodyLength"], d["withinLimits"]]')" "[4104, False]"
+check "draft preview without body -> 400" "$(tcode "$T_a" -X POST $BASE/api/v1/templates/preview -d '{"subject":"only"}')" 400
+check "preview creates nothing (versions of 'welcome' EMAIL still 2)" "$(tapi "$T_a" $BASE/api/v1/templates | jf 'max(t["version"] for t in d if t["name"]=="welcome" and t["channel"]=="EMAIL")')" 2
+
+# --- 19c. platform report + API docs -----------------------------------------------------------------
+section "19c. platform-wide report and OpenAPI"
+PR=$(curl -s -u "$PLATFORM" $BASE/api/v1/platform/reports/delivery)
+check "platform report includes our tenants" "$(echo "$PR" | python3 -c "import sys,json; d=json.load(sys.stdin); ids={t['tenantId'] for t in d['tenants']}; print($ID_a in ids and $ID_n in ids)")" True
+check "platform totals equal the sum over tenants" "$(echo "$PR" | jf 'd["total"]==sum(t["total"] for t in d["tenants"]) and d["byStatus"].get("SENT",0)==sum(t["byStatus"].get("SENT",0) for t in d["tenants"])')" True
+check "tenants sorted by volume (busiest first)" "$(echo "$PR" | jf '[t["total"] for t in d["tenants"]]==sorted([t["total"] for t in d["tenants"]],reverse=True)')" True
+check "tenant admin cannot use the platform report -> 403" "$(tcode "$T_a" $BASE/api/v1/platform/reports/delivery)" 403
+check "platform report without credentials -> 401" "$(code $BASE/api/v1/platform/reports/delivery)" 401
+check "platform report from>to -> 400" "$(code -u "$PLATFORM" "$BASE/api/v1/platform/reports/delivery?from=2999-01-01T00:00:00Z&to=2000-01-01T00:00:00Z")" 400
+check "OpenAPI document is public and lists the API" "$(curl -s $BASE/v3/api-docs | jf '"/api/v1/notifications/batch" in d["paths"] and "/api/v1/platform/reports/delivery" in d["paths"] and "/api/v1/templates/preview" in d["paths"]')" True
+check "Swagger UI is served" "$(code $BASE/swagger-ui.html)" 302
+check "API itself stays protected" "$(code $BASE/api/v1/notifications)" 401
 
 # --- 20. server-side health (log must be clean) ---------------------------------------------------
 section "20. app log has no unhandled errors"
