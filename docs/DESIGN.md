@@ -8,7 +8,7 @@
 | Fairness | Per-tenant round-robin claim: claim at most N rows per tenant per poll cycle | One noisy tenant can't monopolise workers |
 | Rate limit | Per-tenant token bucket (lock-free CAS on `AtomicLong` nanos/tokens) + global limit; over-limit → row stays `PENDING` with `next_attempt_at` pushed out (not dropped) | Classic DSA, testable under concurrency |
 | Idempotency | (a) client `Idempotency-Key` unique per tenant on submit; (b) provider send uses `deliveryKey = notificationId` (same across attempts) so a retry after a lost outcome is de-duplicated by the provider; (c) outcomes are fenced by `attemptCount` so a stale worker cannot overwrite a newer attempt | "No duplicate deliveries on retry" |
-| Retries | Exponential backoff + full jitter, max attempts per tenant config, classify `TransientFailure` vs `PermanentFailure` → `DEAD` | Matches "transient failures" |
+| Retries | Exponential backoff + equal jitter (half deterministic, half random), max attempts per tenant config, classify `TransientFailure` vs `PermanentFailure` → `DEAD` | Matches "transient failures" |
 | Lease recovery | Rows in `PROCESSING` with expired `lease_until` are reclaimed by the poller | Worker crash safety |
 | Audit | `notification_events` append-only (from→to, attempt, reason, ts) written in same tx as state change | Required audit trail |
 | Templates | `{{var}}` substitution, versioned per tenant+channel, missing-variable → 422 at submit time | Fail fast |

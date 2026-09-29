@@ -9,7 +9,7 @@ retries with exponential backoff, exactly-once *effect* on retry, and a persiste
 ## Run
 
 ```bash
-mvn test                # 36 tests
+mvn test                # 39 tests
 mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
@@ -92,15 +92,16 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 7. Idempotency keys are scoped per tenant; a replay returns the original notification (payload not compared).
 8. `maxAttempts` counts total attempts, including the first. Lease-expiry counts as an attempt.
 9. A cancelled notification must still be `PENDING`; once claimed it can't be cancelled.
-10. Rate limits are per-instance in memory (a multi-instance deployment would need a shared store such as Redis). The claim/idempotency logic is already multi-instance-safe because it lives in the DB.
-11. Global limit is applied after the tenant limit, so a throttled tenant doesn't burn global tokens; a rare global rejection wastes one tenant token.
-12. Security is HTTP Basic + BCrypt, as advanced auth is out of scope. The seeded admin password is for development only.
-13. Payload size caps: body 4000 chars, subject 500.
-15. Batch submit: max 100 items; malformed items (bean validation) reject the whole request with 400, business errors (unknown template, disabled channel, bad recipient) are reported per item with the status a single submit would have returned. Items are not one transaction.
-16. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
-14. Replay (`DEAD -> PENDING`) is manual and tenant-scoped. Attempt numbers keep increasing (they are the fencing token and the history); the retry budget restarts from `attempt_base`, so a replay gets `maxAttempts` fresh tries.
+10. On shutdown in-flight sends are interrupted (`shutdownNow`); their rows stay `PROCESSING` and are recovered by lease expiry on the next start, then retried with the same `deliveryKey`, so nothing is lost or double-delivered.
+11. Rate limits are per-instance in memory (a multi-instance deployment would need a shared store such as Redis). The claim/idempotency logic is already multi-instance-safe because it lives in the DB.
+12. Global limit is applied after the tenant limit, so a throttled tenant doesn't burn global tokens. Permits are refunded when unused (global rejection, a lost claim race, or a saturated worker pool), so limits are not eaten by contention.
+13. Security is HTTP Basic + BCrypt, as advanced auth is out of scope. The seeded admin password is for development only.
+14. Payload size caps: body 4000 chars, subject 500.
+15. Replay (`DEAD -> PENDING`) is manual and tenant-scoped. Attempt numbers keep increasing (they are the fencing token and the history); the retry budget restarts from `attempt_base`, so a replay gets `maxAttempts` fresh tries.
+16. Batch submit: max 100 items; malformed items (bean validation) reject the whole request with 400, business errors (unknown template, disabled channel, bad recipient) are reported per item with the status a single submit would have returned. Items are not one transaction.
+17. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
 
-## Testing (36 tests: unit + Spring integration + concurrency)
+## Testing (39 tests: unit + Spring integration + concurrency)
 
 | Area | Test |
 |---|---|
