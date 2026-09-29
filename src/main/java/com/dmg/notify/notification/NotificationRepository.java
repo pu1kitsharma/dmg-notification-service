@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface NotificationRepository extends JpaRepository<Notification, String>, JpaSpecificationExecutor<Notification> {
 
@@ -54,6 +55,16 @@ public interface NotificationRepository extends JpaRepository<Notification, Stri
             + "group by n.lastError order by count(n) desc")
     List<Object[]> topDeadReasons(@Param("tenantId") Long tenantId, @Param("channels") List<ChannelType> channels,
                                   @Param("from") Instant from, @Param("to") Instant to, Pageable pageable);
+
+    /**
+     * Restarts the lease clock when a worker actually starts sending (queue wait must not eat the lease).
+     * Fenced by (PROCESSING, attemptCount): returns 0 if this worker no longer owns the attempt.
+     */
+    @Transactional
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Notification n set n.leaseUntil = :lease, n.version = n.version + 1 "
+            + "where n.id = :id and n.status = 'PROCESSING' and n.attemptCount = :attempt")
+    int extendLease(@Param("id") String id, @Param("attempt") int attempt, @Param("lease") Instant lease);
 
     @Query("select n.channel, n.status, count(n) from Notification n where n.tenantId = :tenantId "
             + "and n.createdAt >= :from and n.createdAt < :to group by n.channel, n.status")

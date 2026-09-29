@@ -270,6 +270,21 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void leaseRenewalRestartsTheClockAndIsFencedByAttempt() {
+        Tenant t = newTenant(1000, 1000, 3);
+        Notification n = submit(t, "a@example.com");
+        Instant now = Instant.now();
+        assertThat(stateMachine.claim(n.getId(), now, now.plusSeconds(1))).contains(1);
+
+        Instant renewed = now.plusSeconds(60);
+        assertThat(notificationRepo.extendLease(n.getId(), 1, renewed)).isEqualTo(1);
+        assertThat(notificationRepo.findById(n.getId()).orElseThrow().getLeaseUntil()).isEqualTo(renewed);
+        // a worker holding a stale attempt number (or a row that is not PROCESSING) cannot renew
+        assertThat(notificationRepo.extendLease(n.getId(), 2, renewed)).isZero();
+        assertThat(notificationRepo.extendLease("no-such-id", 1, renewed)).isZero();
+    }
+
+    @Test
     void cancelledNotificationIsNeverSent() throws Exception {
         Tenant t = newTenant(1000, 1000, 3);
         Notification n = submitAt(t, "a@example.com", Instant.now().plusSeconds(60));

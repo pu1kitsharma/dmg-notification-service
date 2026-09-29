@@ -16,6 +16,7 @@ app:
     poll-interval-ms: 500
     batch-per-tenant: 10
     lease-seconds: 60
+    send-timeout-ms: 15000   # must stay below lease-seconds; a hung provider call is interrupted and retried
     pool-size: 4
     queue-capacity: 100
   retry:
