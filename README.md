@@ -9,7 +9,7 @@ retries with exponential backoff, exactly-once *effect* on retry, and a persiste
 ## Run
 
 ```bash
-mvn test                # 26 tests
+mvn test                # 36 tests
 mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
@@ -100,7 +100,7 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 16. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
 14. Replay (`DEAD -> PENDING`) is manual and tenant-scoped. Attempt numbers keep increasing (they are the fencing token and the history); the retry budget restarts from `attempt_base`, so a replay gets `maxAttempts` fresh tries.
 
-## Testing (26 tests: unit + Spring integration + concurrency)
+## Testing (36 tests: unit + Spring integration + concurrency)
 
 | Area | Test |
 |---|---|
@@ -108,6 +108,7 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 | Template | substitution, regex-special values, all missing variables reported |
 | Retry policy | exponential growth within jitter bounds, cap, no overflow |
 | Dispatch | happy path + full audit trail; transient retries succeed with exactly 1 delivery; DEAD after max attempts; permanent failure not retried; scheduled sends wait; **rate limit defers but never drops**; **noisy tenant can't starve another**; **4 concurrent dispatchers × 300 notifications → each delivered exactly once**; expired lease recovery; **stale worker can't overwrite newer attempt**; cancel |
+| Load | **10k notifications × 3 tenants × 4 concurrent dispatchers → each delivered exactly once (~900 msg/s on H2)**; light tenant finishes in ≤10 cycles behind a 3000-row heavy backlog; rate-limited tenant stays at burst + refill while a free tenant is unaffected |
 | API / RBAC | 401/403, cross-tenant isolation (404), idempotency-key replay, validation (400/404/422/409), disabled channel / deactivated tenant, end-to-end + report, template versioning |
 
 ## Not done / next steps
