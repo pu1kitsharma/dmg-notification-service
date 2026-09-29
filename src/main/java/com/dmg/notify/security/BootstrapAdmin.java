@@ -1,5 +1,7 @@
 package com.dmg.notify.security;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -9,6 +11,9 @@ import org.springframework.stereotype.Component;
 /** Seeds the first platform admin so the system is usable after a fresh start. */
 @Component
 public class BootstrapAdmin implements ApplicationRunner {
+    private static final Logger log = LoggerFactory.getLogger(BootstrapAdmin.class);
+    static final String DEFAULT_PASSWORD = "admin12345"; // documented dev default in application.yml
+
     private final AppUserRepository users;
     private final PasswordEncoder encoder;
     private final String username;
@@ -27,6 +32,9 @@ public class BootstrapAdmin implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         if (!users.existsByRole(Role.PLATFORM_ADMIN)) {
             users.save(new AppUser(username, encoder.encode(password), Role.PLATFORM_ADMIN, null));
+            if (DEFAULT_PASSWORD.equals(password)) {
+                log.warn("Seeded platform admin '{}' with the DEFAULT development password. Set APP_BOOTSTRAP_ADMIN_PASSWORD before any real use.", username);
+            }
         }
     }
 }
