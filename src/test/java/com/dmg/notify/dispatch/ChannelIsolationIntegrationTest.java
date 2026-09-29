@@ -56,6 +56,9 @@ class ChannelIsolationIntegrationTest extends AbstractIntegrationTest {
                     .filter(n -> n.getChannel() == ChannelType.SMS && n.getStatus() == NotificationStatus.PENDING)).hasSize(2);
         } finally {
             sms.release.countDown();
+            // let the released SMS workers finish writing their outcomes; contexts share one database, so a straggler
+            // would otherwise collide with the next test class's cleanup
+            executors.awaitIdle(30_000);
         }
     }
 }
