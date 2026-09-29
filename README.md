@@ -14,7 +14,7 @@ mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
 A platform admin is seeded on startup: `admin` / `admin12345` (override with `APP_BOOTSTRAP_ADMIN_PASSWORD`).
-For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Only exercised on H2 in PostgreSQL mode** — no Postgres instance was available for the test run.
+For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Verified on PostgreSQL 16**: Flyway migrations V1–V3 apply, Hibernate schema validation passes, all 53 tests pass, the 138-check end-to-end script passes, and the crash-recovery scenarios pass. (Running on Postgres needs the `flyway-database-postgresql` module, which is a dependency; it was missing at first and only a real Postgres run caught that.)
 
 ## Quick tour
 
@@ -105,7 +105,7 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 17. A send that ignores thread interruption can still pin a pool thread after the watchdog fires; this is bounded by the pool size and is the reason providers should use client-side timeouts too. The lease is renewed when a worker starts, so queue wait does not count against it.
 18. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
 
-## Testing (52 tests: unit + Spring integration + concurrency + load)
+## Testing (53 tests: unit + Spring integration + concurrency + load)
 
 | Area | Test |
 |---|---|
@@ -118,14 +118,23 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 | API / RBAC | 401/403, cross-tenant isolation (404), idempotency-key replay + payload mismatch (409), validation (400/404/422/409), disabled channel / deactivated tenant, end-to-end + report (by template, top failures), list filters, batch, replay, template versioning |
 | Other | default-admin-password warning, failure-reason normalisation, token release/refund (incl. global rejection not burning tenant tokens) |
 
-Time-dependent tests use a controllable clock (`MutableClock`) instead of sleeps. `docs/smoke.sh` is an end-to-end script for a running instance.
+Time-dependent tests use a controllable clock (`MutableClock`) instead of sleeps.
+
+**End-to-end scripts against the real running app** (these found bugs the in-process tests had missed; see `docs/AI_WORKFLOW.md`):
+
+| Script | What it does |
+|---|---|
+| `docs/smoke.sh` | 30-second sanity flow (RBAC, send, retry to DEAD, replay, batch, report). |
+| `docs/e2e.sh` | 138 checks over HTTP: authn/RBAC and protocol errors (404/405/415), tenant lifecycle, templates and versioning, validation matrix, idempotency incl. a 12-way concurrent race, scheduling, cancel, channel disable/re-enable with queued rows, `senderId`, retries with real backoff to DEAD, replay, rate limit, fairness, deactivate/reactivate, global limit, batch, list filters, reports, cross-tenant isolation, and a clean app log. `APP_LOG=<log> docs/e2e.sh` |
+| `docs/e2e-resilience.sh` | Starts/stops the app itself: hung provider is interrupted and retried, saturated SMS pool does not block email, `kill -9` and SIGTERM mid-send on a persistent DB then restart (all in-flight messages recovered, delivered once). `DB_URL=... DB_USER=... DB_PASS=...` runs the crash scenarios on Postgres. |
+
 
 ## Not done / next steps
 
 Webhook/callback delivery receipts, per-tenant priority queues, Redis-backed distributed rate limiting,
 Kafka-based ingestion, pagination on reports, user-management API.
 
-Known limits (deliberate, for scope): a single tenant-admin user per tenant; a changed tenant rate/burst rebuilds that tenant's bucket (fresh burst); an expired lease counts as an attempt toward `maxAttempts`; Postgres is reviewed but only exercised on H2; a provider that ignores interrupts can pin a pool thread.
+Known limits (deliberate, for scope): a single tenant-admin user per tenant; a changed tenant rate/burst rebuilds that tenant's bucket (fresh burst); an expired lease counts as an attempt toward `maxAttempts`; a provider that ignores interrupts can pin a pool thread; throughput on Postgres was ~470 msg/s vs ~1200 msg/s on in-memory H2 for the 10k load test (single instance, one machine).
 
 ## AI workflow
 
