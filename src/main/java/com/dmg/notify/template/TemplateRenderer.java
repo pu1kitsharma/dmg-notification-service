@@ -11,7 +11,20 @@ import java.util.regex.Pattern;
 public final class TemplateRenderer {
     private static final Pattern VAR = Pattern.compile("\\{\\{\\s*([A-Za-z0-9_.]+)\\s*}}");
 
+    /** Column limits of the rendered message (notifications.subject / notifications.body). */
+    public static final int MAX_SUBJECT = 500;
+    public static final int MAX_BODY = 4000;
+
     private TemplateRenderer() {}
+
+    /** Names of the variables a template references, in order of first appearance. */
+    public static Set<String> variables(String template) {
+        Set<String> names = new LinkedHashSet<>();
+        if (template == null) return names;
+        Matcher m = VAR.matcher(template);
+        while (m.find()) names.add(m.group(1));
+        return names;
+    }
 
     public static String render(String template, Map<String, String> vars) {
         if (template == null) return null;

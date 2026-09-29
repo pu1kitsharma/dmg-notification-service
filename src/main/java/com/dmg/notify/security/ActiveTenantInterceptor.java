@@ -26,6 +26,7 @@ public class ActiveTenantInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         if (READ_ONLY_METHODS.contains(request.getMethod())) return true;
+        if (request.getRequestURI().endsWith("/preview")) return true; // dry run, changes nothing
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof AppPrincipal p && p.getTenantId() != null) {
             boolean active = tenants.findById(p.getTenantId()).map(t -> t.isActive()).orElse(false);

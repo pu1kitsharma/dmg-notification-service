@@ -79,6 +79,41 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void templatePreviewRendersWithoutCreatingAnything() throws Exception {
+        RequestPostProcessor a = createTenant("prev");
+        RequestPostProcessor b = createTenant("prev-b");
+        createTemplate(a);
+        String tplId = json.readTree(mvc.perform(get("/api/v1/templates").with(a)).andReturn().getResponse().getContentAsString())
+                .get(0).get("id").asText();
+
+        // saved template
+        mvc.perform(post("/api/v1/templates/" + tplId + "/preview").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"variables\":{\"name\":\"Grace\",\"typo\":\"x\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.subject").value("Hi Grace"))
+                .andExpect(jsonPath("$.body").value("Hello Grace"))
+                .andExpect(jsonPath("$.variablesUsed[0]").value("name"))
+                .andExpect(jsonPath("$.unusedVariables[0]").value("typo"))
+                .andExpect(jsonPath("$.withinLimits").value(true));
+        mvc.perform(post("/api/v1/templates/" + tplId + "/preview").with(a).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnprocessableEntity()); // missing variable, same as a real submit
+        mvc.perform(post("/api/v1/templates/" + tplId + "/preview").with(b).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"variables\":{\"name\":\"x\"}}")).andExpect(status().isNotFound()); // other tenant's template
+
+        // draft that is not saved yet, and over the limits after substitution
+        mvc.perform(post("/api/v1/templates/preview").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"subject\":\"S {{x}}\",\"body\":\"B {{x}} {{y}}\",\"variables\":{\"x\":\"1\",\"y\":\"" + "z".repeat(4100) + "\"}}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.withinLimits").value(false))
+                .andExpect(jsonPath("$.bodyLength").value(4100 + 4));
+        mvc.perform(post("/api/v1/templates/preview").with(a).contentType(MediaType.APPLICATION_JSON).content("{\"subject\":\"only\"}"))
+                .andExpect(status().isBadRequest());
+
+        // nothing was created
+        mvc.perform(get("/api/v1/templates").with(a)).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
     void platformAdminSeesACrossTenantReportAndTenantAdminsCannot() throws Exception {
         RequestPostProcessor a = createTenant("plat-a");
         RequestPostProcessor b = createTenant("plat-b");

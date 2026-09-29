@@ -35,8 +35,8 @@ public class NotificationService {
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Pattern PHONE = Pattern.compile("^\\+?[0-9]{7,15}$");
     private static final long MAX_SCHEDULE_DAYS = 365;
-    private static final int MAX_SUBJECT = 500;  // notifications.subject VARCHAR(500)
-    private static final int MAX_BODY = 4000;    // notifications.body VARCHAR(4000)
+    private static final int MAX_SUBJECT = TemplateRenderer.MAX_SUBJECT;
+    private static final int MAX_BODY = TemplateRenderer.MAX_BODY;
 
     private final NotificationRepository notifications;
     private final NotificationEventRepository events;
