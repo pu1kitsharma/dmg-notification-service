@@ -79,6 +79,30 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void badRequestMessagesDoNotLeakInternalClassNames() throws Exception {
+        RequestPostProcessor a = createTenant("leak");
+        createTemplate(a);
+        String enumBody = mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"channel\":\"FAX\",\"templateName\":\"welcome\",\"recipient\":\"a@b.com\"}"))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(enumBody).doesNotContain("com.dmg").doesNotContain("java.").doesNotContain("Cannot deserialize");
+        assertThat(enumBody).contains("channel").contains("EMAIL"); // names the field and the allowed values
+
+        String typeBody = mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"channel\":\"EMAIL\",\"templateName\":\"welcome\",\"recipient\":\"a@b.com\",\"variables\":\"nope\"}"))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(typeBody).doesNotContain("com.dmg").doesNotContain("java.util").contains("variables");
+
+        String syntax = mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content("{oops"))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(syntax).doesNotContain("com.fasterxml").doesNotContain("JsonParseException").contains("Malformed JSON");
+
+        String param = mvc.perform(get("/api/v1/notifications?status=WAT").with(a))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(param).doesNotContain("com.dmg").doesNotContain("MethodArgumentTypeMismatch").contains("status");
+    }
+
+    @Test
     void deactivatedTenantIsReadOnlyForItsAdmin() throws Exception {
         RequestPostProcessor a = createTenant("ro");
         createTemplate(a);

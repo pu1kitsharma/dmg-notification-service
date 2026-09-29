@@ -1,5 +1,10 @@
 package com.dmg.notify.common;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,9 +43,33 @@ public class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
-    ProblemDetail handleUnreadable(Exception e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Malformed request: " + e.getMessage());
+    /** Names the offending field and, for enums, the allowed values, but never Jackson/Java class names. */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ProblemDetail handleUnreadable(HttpMessageNotReadableException e) {
+        Throwable cause = e.getCause();
+        String detail = "Malformed JSON request body";
+        if (cause instanceof MismatchedInputException m) { // InvalidFormatException is a subclass
+            String field = m.getPath().stream().map(JsonMappingException.Reference::getFieldName)
+                    .filter(Objects::nonNull).collect(Collectors.joining("."));
+            String where = field.isEmpty() ? "request body" : "field '" + field + "'";
+            Class<?> target = m.getTargetType();
+            if (m instanceof InvalidFormatException && target != null && target.isEnum()) {
+                detail = "Invalid value for " + where + "; allowed: "
+                        + Arrays.stream(target.getEnumConstants()).map(Object::toString).sorted().collect(Collectors.joining(", "));
+            } else {
+                detail = "Invalid or missing value for " + where;
+            }
+        }
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ProblemDetail handleParamMismatch(MethodArgumentTypeMismatchException e) {
+        Class<?> type = e.getRequiredType();
+        String allowed = type != null && type.isEnum()
+                ? "; allowed: " + Arrays.stream(type.getEnumConstants()).map(Object::toString).sorted().collect(Collectors.joining(", "))
+                : "";
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Invalid value for parameter '" + e.getName() + "'" + allowed);
     }
 
     /**
