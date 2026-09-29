@@ -79,6 +79,28 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void renderedTextLongerThanTheColumnsIsA422NotA500() throws Exception {
+        RequestPostProcessor a = createTenant("longvar");
+        createTemplate(a);
+        String huge = "z".repeat(4100); // template body is short, but the variable makes the rendered body > 4000
+        String body = "{\"channel\":\"EMAIL\",\"templateName\":\"welcome\",\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"" + huge + "\"}}";
+        mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnprocessableEntity());
+        // same with an idempotency key (used to hit NoSuchElementException -> 500)
+        mvc.perform(post("/api/v1/notifications").with(a).header("Idempotency-Key", "long-1")
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnprocessableEntity());
+        // subject limit (500) is checked separately
+        String subj = "{\"channel\":\"EMAIL\",\"templateName\":\"welcome\",\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"" + "s".repeat(600) + "\"}}";
+        mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content(subj))
+                .andExpect(status().isUnprocessableEntity());
+        // a batch reports it per item instead of failing
+        mvc.perform(post("/api/v1/notifications/batch").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[{\"notification\":" + body + "}]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.results[0].status").value(422));
+        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.page.totalElements").value(0));
+    }
+
+    @Test
     void protocolLevelMistakesAreClientErrorsNotServerErrors() throws Exception {
         RequestPostProcessor a = createTenant("proto");
         mvc.perform(get("/api/v1/nope").with(a)).andExpect(status().isNotFound());

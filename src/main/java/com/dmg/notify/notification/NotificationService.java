@@ -35,6 +35,8 @@ public class NotificationService {
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Pattern PHONE = Pattern.compile("^\\+?[0-9]{7,15}$");
     private static final long MAX_SCHEDULE_DAYS = 365;
+    private static final int MAX_SUBJECT = 500;  // notifications.subject VARCHAR(500)
+    private static final int MAX_BODY = 4000;    // notifications.body VARCHAR(4000)
 
     private final NotificationRepository notifications;
     private final NotificationEventRepository events;
@@ -87,6 +89,13 @@ public class NotificationService {
         Template template = templates.latest(tenantId, req.templateName(), req.channel());
         String subject = TemplateRenderer.render(template.getSubject(), req.variables());
         String body = TemplateRenderer.render(template.getBody(), req.variables());
+        // the template is validated at 500/4000, but variables can make the *rendered* text longer than the columns
+        if (subject != null && subject.length() > MAX_SUBJECT) {
+            throw new ApiException.Unprocessable("Rendered subject is " + subject.length() + " chars (max " + MAX_SUBJECT + ")");
+        }
+        if (body.length() > MAX_BODY) {
+            throw new ApiException.Unprocessable("Rendered body is " + body.length() + " chars (max " + MAX_BODY + ")");
+        }
         Notification n = new Notification(tenantId, req.channel(), template.getId(), req.recipient(), subject, body,
                 key, req.scheduledAt(), now);
         n.setRequestHash(hash);
@@ -97,10 +106,11 @@ public class NotificationService {
             });
             return new SubmitResult(n, true);
         } catch (DataIntegrityViolationException e) {
-            if (key != null) { // lost a race with a concurrent submit carrying the same key
-                return replay(notifications.findByTenantIdAndIdempotencyKey(tenantId, key).orElseThrow(), hash);
+            if (key != null) { // lost a race with a concurrent submit carrying the same key?
+                var winner = notifications.findByTenantIdAndIdempotencyKey(tenantId, key);
+                if (winner.isPresent()) return replay(winner.get(), hash);
             }
-            throw e;
+            throw e; // some other integrity problem: GlobalExceptionHandler turns it into a 409, never a 500
         }
     }
 

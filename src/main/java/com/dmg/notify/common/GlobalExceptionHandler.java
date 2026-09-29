@@ -3,6 +3,7 @@ package com.dmg.notify.common;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.ProblemDetail;
@@ -53,6 +54,13 @@ public class GlobalExceptionHandler {
     ResponseEntity<ProblemDetail> handleFrameworkError(Exception e) {
         ErrorResponse er = (ErrorResponse) e;
         return ResponseEntity.status(er.getStatusCode()).headers(er.getHeaders()).body(er.getBody());
+    }
+
+    /** Unique/FK/length violations that were not pre-validated: a client-visible conflict, without leaking SQL. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ProblemDetail handleIntegrity(DataIntegrityViolationException e) {
+        log.warn("Data integrity violation: {}", e.getMostSpecificCause().getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "The request conflicts with existing data");
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
