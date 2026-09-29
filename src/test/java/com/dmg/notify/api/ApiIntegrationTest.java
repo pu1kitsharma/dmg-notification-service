@@ -79,6 +79,22 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void protocolLevelMistakesAreClientErrorsNotServerErrors() throws Exception {
+        RequestPostProcessor a = createTenant("proto");
+        mvc.perform(get("/api/v1/nope").with(a)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/reports").with(a)).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/v1/notifications").with(a)).andExpect(status().isMethodNotAllowed())
+                .andExpect(header().exists("Allow"));
+        mvc.perform(put("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mvc.perform(get("/api/v1/notifications/abc/cancel").with(a)).andExpect(status().isMethodNotAllowed());
+        mvc.perform(delete("/api/v1/tenants/1").with(platform)).andExpect(status().isMethodNotAllowed());
+        mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.TEXT_PLAIN).content("x"))
+                .andExpect(status().isUnsupportedMediaType());
+        mvc.perform(get("/api/v1/nope").with(a)).andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+    }
+
+    @Test
     void idempotencyKeyReusedWithDifferentPayloadIsRejected() throws Exception {
         RequestPostProcessor a = createTenant("idem2");
         createTemplate(a);
