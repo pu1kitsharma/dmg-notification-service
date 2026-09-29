@@ -14,7 +14,7 @@ mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
 A platform admin is seeded on startup: `admin` / `admin12345` (override with `APP_BOOTSTRAP_ADMIN_PASSWORD`).
-For PostgreSQL set `spring.datasource.url/username/password`; the Flyway migration is Postgres-compatible.
+For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Only exercised on H2 in PostgreSQL mode** — no Postgres instance was available for the test run.
 
 ## Quick tour
 
