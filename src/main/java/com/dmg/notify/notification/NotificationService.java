@@ -12,6 +12,7 @@ import com.dmg.notify.tenant.TenantRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -94,6 +95,32 @@ public class NotificationService {
             }
             throw e;
         }
+    }
+
+    /**
+     * Submits each item independently (own transaction): one bad item never fails the batch. Business errors
+     * (unknown template, disabled channel, ...) are reported per item; the response order matches the request.
+     */
+    public BatchResponse submitBatch(long tenantId, BatchRequest req) {
+        List<BatchItemResult> results = new ArrayList<>(req.items().size());
+        int accepted = 0, duplicates = 0, rejected = 0;
+        for (int i = 0; i < req.items().size(); i++) {
+            BatchItem item = req.items().get(i);
+            try {
+                SubmitResult r = submit(tenantId, item.notification(), item.idempotencyKey());
+                if (r.created()) {
+                    accepted++;
+                    results.add(new BatchItemResult(i, BatchOutcome.ACCEPTED, r.notification().getId(), 202, null));
+                } else {
+                    duplicates++;
+                    results.add(new BatchItemResult(i, BatchOutcome.DUPLICATE, r.notification().getId(), 200, null));
+                }
+            } catch (ApiException e) {
+                rejected++;
+                results.add(new BatchItemResult(i, BatchOutcome.REJECTED, null, e.getStatus().value(), e.getMessage()));
+            }
+        }
+        return new BatchResponse(accepted, duplicates, rejected, results);
     }
 
     public NotificationDetail detail(long tenantId, String id) {

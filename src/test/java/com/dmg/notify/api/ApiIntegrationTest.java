@@ -179,6 +179,43 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void batchSubmitReportsPerItemOutcomes() throws Exception {
+        RequestPostProcessor a = createTenant("batch");
+        createTemplate(a);
+        String body = "{\"items\":["
+                + "{\"idempotencyKey\":\"b-1\",\"notification\":" + SUBMIT + "},"
+                + "{\"idempotencyKey\":\"b-1\",\"notification\":" + SUBMIT + "},"
+                + "{\"notification\":" + SUBMIT + "},"
+                + "{\"notification\":" + SUBMIT.replace("welcome", "nope") + "},"
+                + "{\"notification\":" + SUBMIT.replace("a@b.com", "not-an-email") + "}]}";
+
+        mvc.perform(post("/api/v1/notifications/batch").with(a).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accepted").value(2))
+                .andExpect(jsonPath("$.duplicates").value(1))
+                .andExpect(jsonPath("$.rejected").value(2))
+                .andExpect(jsonPath("$.results[0].outcome").value("ACCEPTED"))
+                .andExpect(jsonPath("$.results[1].outcome").value("DUPLICATE"))
+                .andExpect(jsonPath("$.results[1].id").exists())
+                .andExpect(jsonPath("$.results[3].status").value(404))
+                .andExpect(jsonPath("$.results[4].status").value(400));
+        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.totalElements").value(2));
+    }
+
+    @Test
+    void batchLimitsAndShapeAreValidated() throws Exception {
+        RequestPostProcessor a = createTenant("batchv");
+        mvc.perform(post("/api/v1/notifications/batch").with(a).contentType(MediaType.APPLICATION_JSON).content("{\"items\":[]}"))
+                .andExpect(status().isBadRequest());
+        String item = "{\"notification\":" + SUBMIT + "}";
+        String tooMany = "{\"items\":[" + String.join(",", java.util.Collections.nCopies(101, item)) + "]}";
+        mvc.perform(post("/api/v1/notifications/batch").with(a).contentType(MediaType.APPLICATION_JSON).content(tooMany))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/notifications/batch").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[{\"notification\":{}}]}")).andExpect(status().isBadRequest());
+    }
+
+    @Test
     void replayIsOnlyForDeadAndTenantScoped() throws Exception {
         RequestPostProcessor a = createTenant("rp-a");
         RequestPostProcessor b = createTenant("rp-b");

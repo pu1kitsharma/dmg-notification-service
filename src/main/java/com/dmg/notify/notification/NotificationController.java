@@ -28,6 +28,12 @@ public class NotificationController {
                 .body(NotificationResponse.from(r.notification()));
     }
 
+    /** Up to 100 notifications per call; 200 with a per-item outcome (a bad item does not fail the others). */
+    @PostMapping("/batch")
+    public BatchResponse submitBatch(@Valid @RequestBody BatchRequest req) {
+        return service.submitBatch(TenantContext.requireTenantId(), req);
+    }
+
     @GetMapping("/{id}")
     public NotificationDetail get(@PathVariable String id) {
         return service.detail(TenantContext.requireTenantId(), id);

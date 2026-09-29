@@ -43,7 +43,7 @@ Recipients containing `fail-transient` / `fail-permanent` make the simulated pro
 | PLATFORM_ADMIN | `POST/GET /api/v1/tenants`, `GET/PATCH /api/v1/tenants/{id}` (activate, rate, burst, maxAttempts), `GET/PUT /api/v1/limits/global` |
 | TENANT_ADMIN | `POST/GET /api/v1/templates`, `GET /api/v1/templates/{id}` |
 | | `GET /api/v1/channels`, `PUT /api/v1/channels/{EMAIL\|SMS\|PUSH\|IN_APP}` |
-| | `POST /api/v1/notifications` (202 new / 200 idempotent replay), `GET /api/v1/notifications?status=&channel=&from=&to=&page=&size=`, `GET /api/v1/notifications/{id}`, `POST /api/v1/notifications/{id}/cancel`, `POST /api/v1/notifications/{id}/replay` (DEAD only) |
+| | `POST /api/v1/notifications` (202 new / 200 idempotent replay), `POST /api/v1/notifications/batch` (≤100 items, per-item outcome), `GET /api/v1/notifications?status=&channel=&from=&to=&page=&size=`, `GET /api/v1/notifications/{id}`, `POST /api/v1/notifications/{id}/cancel`, `POST /api/v1/notifications/{id}/replay` (DEAD only) |
 | | `GET /api/v1/reports/delivery?from=&to=&channel=` (totals, success rate, by channel/status, by template, top 5 dead-letter reasons) |
 
 Errors are RFC 7807 problem details: 400 validation, 401 unauthenticated, 403 wrong role/deactivated tenant, 404 not found (also for other tenants' data), 409 conflict, 422 template variables missing.
@@ -94,6 +94,8 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 11. Global limit is applied after the tenant limit, so a throttled tenant doesn't burn global tokens; a rare global rejection wastes one tenant token.
 12. Security is HTTP Basic + BCrypt, as advanced auth is out of scope. The seeded admin password is for development only.
 13. Payload size caps: body 4000 chars, subject 500.
+15. Batch submit: max 100 items; malformed items (bean validation) reject the whole request with 400, business errors (unknown template, disabled channel, bad recipient) are reported per item with the status a single submit would have returned. Items are not one transaction.
+16. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
 14. Replay (`DEAD -> PENDING`) is manual and tenant-scoped. Attempt numbers keep increasing (they are the fencing token and the history); the retry budget restarts from `attempt_base`, so a replay gets `maxAttempts` fresh tries.
 
 ## Testing (26 tests: unit + Spring integration + concurrency)

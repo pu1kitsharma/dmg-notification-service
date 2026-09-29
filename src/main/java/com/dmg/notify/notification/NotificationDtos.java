@@ -1,6 +1,7 @@
 package com.dmg.notify.notification;
 
 import com.dmg.notify.channel.ChannelType;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -17,6 +18,19 @@ public final class NotificationDtos {
             @NotBlank @Size(max = 320) String recipient,
             Map<String, String> variables,
             Instant scheduledAt) {}
+
+    public static final int MAX_BATCH = 100;
+
+    public record BatchItem(@Size(max = 100) String idempotencyKey, @NotNull @Valid SubmitRequest notification) {}
+
+    public record BatchRequest(@NotNull @Size(min = 1, max = MAX_BATCH) List<@NotNull @Valid BatchItem> items) {}
+
+    public enum BatchOutcome { ACCEPTED, DUPLICATE, REJECTED }
+
+    /** {@code status} is the HTTP status the same item would have got as a single submit. */
+    public record BatchItemResult(int index, BatchOutcome outcome, String id, int status, String error) {}
+
+    public record BatchResponse(int accepted, int duplicates, int rejected, List<BatchItemResult> results) {}
 
     public record NotificationResponse(String id, ChannelType channel, String recipient, NotificationStatus status,
                                        int attemptCount, Instant scheduledAt, Instant nextAttemptAt, String lastError,
