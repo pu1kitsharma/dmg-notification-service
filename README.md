@@ -14,7 +14,7 @@ mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
 A platform admin is seeded on startup: `admin` / `admin12345` (override with `APP_BOOTSTRAP_ADMIN_PASSWORD`).
-For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Verified on PostgreSQL 16**: Flyway migrations V1–V3 apply, Hibernate schema validation passes, all 53 tests pass, the 138-check end-to-end script passes, and the crash-recovery scenarios pass. (Running on Postgres needs the `flyway-database-postgresql` module, which is a dependency; it was missing at first and only a real Postgres run caught that.)
+For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Verified on PostgreSQL 16**: Flyway migrations V1–V3 apply, Hibernate schema validation passes, all 63 tests pass, the 167-check end-to-end script passes, and the crash-recovery scenarios pass. (Running on Postgres needs the `flyway-database-postgresql` module, which is a dependency; it was missing at first and only a real Postgres run caught that.)
 
 ## Quick tour
 
@@ -42,13 +42,15 @@ Recipients containing `fail-transient` / `fail-permanent` make the simulated pro
 
 | Role | Endpoint |
 |---|---|
-| PLATFORM_ADMIN | `POST/GET /api/v1/tenants`, `GET/PATCH /api/v1/tenants/{id}` (activate, rate, burst, maxAttempts), `GET/PUT /api/v1/limits/global` |
-| TENANT_ADMIN | `POST/GET /api/v1/templates`, `GET /api/v1/templates/{id}` |
+| PLATFORM_ADMIN | `POST/GET /api/v1/tenants`, `GET/PATCH /api/v1/tenants/{id}` (activate, rate, burst, maxAttempts), `GET/PUT /api/v1/limits/global`, `GET /api/v1/platform/reports/delivery?from=&to=` (all tenants, by tenant and status) |
+| TENANT_ADMIN | `POST/GET /api/v1/templates`, `GET /api/v1/templates/{id}`, `POST /api/v1/templates/{id}/preview` and `POST /api/v1/templates/preview` (dry-run render of a saved template / an unsaved draft, no side effects) |
 | | `GET /api/v1/channels`, `PUT /api/v1/channels/{EMAIL\|SMS\|PUSH\|IN_APP}` |
 | | `POST /api/v1/notifications` (202 new / 200 idempotent replay), `POST /api/v1/notifications/batch` (≤100 items, per-item outcome), `GET /api/v1/notifications?status=&channel=&from=&to=&page=&size=`, `GET /api/v1/notifications/{id}`, `POST /api/v1/notifications/{id}/cancel`, `POST /api/v1/notifications/{id}/replay` (DEAD only) |
 | | `GET /api/v1/reports/delivery?from=&to=&channel=` (totals, success rate, by channel/status, by template, top 5 dead-letter reasons) |
 
 Lists are paged as `{content:[...], page:{size,number,totalElements,totalPages}}` (stable DTO shape).
+
+Interactive API docs: Swagger UI at `/swagger-ui.html`, OpenAPI JSON at `/v3/api-docs` (public; "Authorize" takes the Basic credentials).
 
 Errors are RFC 7807 problem details: 400 validation, 401 unauthenticated, 403 wrong role/deactivated tenant, 404 not found (also for other tenants' data), 409 conflict, 422 template variables missing.
 
@@ -103,9 +105,12 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 15. Replay (`DEAD -> PENDING`) is manual and tenant-scoped. Attempt numbers keep increasing (they are the fencing token and the history); the retry budget restarts from `attempt_base`, so a replay gets `maxAttempts` fresh tries.
 16. Batch submit: max 100 items; malformed items (bean validation) reject the whole request with 400, business errors (unknown template, disabled channel, bad recipient) are reported per item with the status a single submit would have returned. Items are not one transaction.
 17. A send that ignores thread interruption can still pin a pool thread after the watchdog fires; this is bounded by the pool size and is the reason providers should use client-side timeouts too. The lease is renewed when a worker starts, so queue wait does not count against it.
-18. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
+18. A deactivated tenant is read-only: its admin can still read notifications, reports and templates and run previews, but every mutating call (send, batch, cancel, replay, templates, channel config) is `403`; the platform admin re-activates it.
+19. Free-text values that can exceed a column (provider errors, audit reasons) are truncated with `…`; a *rendered* subject/body over 500/4000 chars is rejected with `422` at submit time (templates are validated at the same limits, but variables can grow the text).
+20. Concurrent creation of the same template name is serialised per tenant (row lock), so it yields consecutive versions instead of an error.
+21. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
 
-## Testing (53 tests: unit + Spring integration + concurrency + load)
+## Testing (63 tests: unit + Spring integration + concurrency + load)
 
 | Area | Test |
 |---|---|
@@ -125,7 +130,7 @@ Time-dependent tests use a controllable clock (`MutableClock`) instead of sleeps
 | Script | What it does |
 |---|---|
 | `docs/smoke.sh` | 30-second sanity flow (RBAC, send, retry to DEAD, replay, batch, report). |
-| `docs/e2e.sh` | 138 checks over HTTP: authn/RBAC and protocol errors (404/405/415), tenant lifecycle, templates and versioning, validation matrix, idempotency incl. a 12-way concurrent race, scheduling, cancel, channel disable/re-enable with queued rows, `senderId`, retries with real backoff to DEAD, replay, rate limit, fairness, deactivate/reactivate, global limit, batch, list filters, reports, cross-tenant isolation, and a clean app log. `APP_LOG=<log> docs/e2e.sh` |
+| `docs/e2e.sh` | 167 checks over HTTP: authn/RBAC and protocol errors (404/405/415), tenant lifecycle, templates and versioning, validation matrix, idempotency incl. a 12-way concurrent race, scheduling, cancel, channel disable/re-enable with queued rows, `senderId`, retries with real backoff to DEAD, replay, rate limit, fairness, deactivate/reactivate, global limit, batch, list filters, reports, cross-tenant isolation, and a clean app log. `APP_LOG=<log> docs/e2e.sh` |
 | `docs/e2e-resilience.sh` | Starts/stops the app itself: hung provider is interrupted and retried, saturated SMS pool does not block email, `kill -9` and SIGTERM mid-send on a persistent DB then restart (all in-flight messages recovered, delivered once). `DB_URL=... DB_USER=... DB_PASS=...` runs the crash scenarios on Postgres. |
 
 
