@@ -9,9 +9,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +36,17 @@ public class DeliveryReportController {
                                  List<TemplateRow> byTemplate, List<FailureRow> topFailures) {}
 
     private static final int TOP_FAILURES = 5;
+    private static final int MAX_DISTINCT_REASONS = 500;
+    private static final Pattern UUID = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    private static final Pattern LONG_NUMBER = Pattern.compile("\\d{4,}");
+
+    /** Free-text provider errors embed ids/numbers; mask them so "same" failures share one bucket. */
+    static String normalizeReason(String raw) {
+        if (raw == null || raw.isBlank()) return "unknown";
+        String s = UUID.matcher(raw.trim()).replaceAll("<id>");
+        s = LONG_NUMBER.matcher(s).replaceAll("<n>").replaceAll("\\s+", " ").toLowerCase();
+        return s.length() > 120 ? s.substring(0, 120) : s;
+    }
 
     private final NotificationRepository repo;
     private final Clock clock;
@@ -69,8 +82,13 @@ public class DeliveryReportController {
                     .merge((NotificationStatus) o[1], (Long) o[2], Long::sum);
         }
         List<TemplateRow> byTemplate = tpl.entrySet().stream().map(e -> new TemplateRow(e.getKey(), e.getValue())).toList();
-        List<FailureRow> topFailures = repo.topDeadReasons(tenantId, channels, start, end, PageRequest.of(0, TOP_FAILURES)).stream()
-                .map(o -> new FailureRow(o[0] == null ? "unknown" : (String) o[0], (Long) o[1])).toList();
+        Map<String, Long> merged = new HashMap<>();
+        for (Object[] o : repo.topDeadReasons(tenantId, channels, start, end, PageRequest.of(0, MAX_DISTINCT_REASONS))) {
+            merged.merge(normalizeReason((String) o[0]), (Long) o[1], Long::sum);
+        }
+        List<FailureRow> topFailures = merged.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed().thenComparing(Map.Entry.comparingByKey()))
+                .limit(TOP_FAILURES).map(e -> new FailureRow(e.getKey(), e.getValue())).toList();
         return new DeliveryReport(start, end, rows.stream().mapToLong(Row::count).sum(), successRate, byStatus, rows,
                 byTemplate, topFailures);
     }
