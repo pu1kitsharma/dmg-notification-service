@@ -14,6 +14,7 @@ import com.dmg.notify.notification.NotificationEventRepository;
 import com.dmg.notify.notification.NotificationStateMachine;
 import com.dmg.notify.notification.NotificationStatus;
 import com.dmg.notify.tenant.Tenant;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,14 +86,14 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     @Test
     void scheduledNotificationWaitsUntilDue() throws Exception {
         Tenant t = newTenant(1000, 1000, 3);
-        Notification later = submitAt(t, "a@example.com", Instant.now().plusSeconds(3600));
-        Notification soon = submitAt(t, "b@example.com", Instant.now().plusMillis(150));
+        Notification later = submitAt(t, "a@example.com", clock.instant().plusSeconds(3600));
+        Notification soon = submitAt(t, "b@example.com", clock.instant().plusSeconds(60));
 
         drain(2);
         assertThat(statusOf(later.getId())).isEqualTo(NotificationStatus.PENDING);
         assertThat(statusOf(soon.getId())).isEqualTo(NotificationStatus.PENDING);
 
-        Thread.sleep(200);
+        clock.advance(Duration.ofSeconds(61)); // time passes: only the 60s one is due
         drain(3);
         assertThat(statusOf(soon.getId())).isEqualTo(NotificationStatus.SENT);
         assertThat(statusOf(later.getId())).isEqualTo(NotificationStatus.PENDING);
@@ -161,7 +162,7 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
         Tenant t = newTenant(1000, 1000, 3);
         Notification n = submit(t, "a@example.com");
         // simulate a worker that claimed the row and then died: lease already in the past, no outcome recorded
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         assertThat(stateMachine.claim(n.getId(), now, now.minusSeconds(1))).contains(1);
         assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.PROCESSING);
 
@@ -178,10 +179,10 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     void staleWorkerCannotOverwriteNewerAttempt() throws Exception {
         Tenant t = newTenant(1000, 1000, 5);
         Notification n = submit(t, "a@example.com");
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         stateMachine.claim(n.getId(), now, now.minusSeconds(1)); // attempt 1, lease expired
         dispatcher.runOnce();                                    // reclaim -> PENDING (attempt 1 failed)
-        Thread.sleep(10);
+        clock.advance(Duration.ofSeconds(1)); // past the retry backoff
         dispatcher.runOnce();                                    // claim attempt 2
         executors.awaitIdle(2000);
         assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.SENT);
@@ -273,7 +274,7 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     void leaseRenewalRestartsTheClockAndIsFencedByAttempt() {
         Tenant t = newTenant(1000, 1000, 3);
         Notification n = submit(t, "a@example.com");
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         assertThat(stateMachine.claim(n.getId(), now, now.plusSeconds(1))).contains(1);
 
         Instant renewed = now.plusSeconds(60);
@@ -318,7 +319,7 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     @Test
     void cancelledNotificationIsNeverSent() throws Exception {
         Tenant t = newTenant(1000, 1000, 3);
-        Notification n = submitAt(t, "a@example.com", Instant.now().plusSeconds(60));
+        Notification n = submitAt(t, "a@example.com", clock.instant().plusSeconds(60));
         notificationService.cancel(t.getId(), n.getId());
 
         drain(3);

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @SpringBootTest(properties = {
@@ -27,6 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
         "app.retry.base-delay-ms=1",
         "app.retry.max-delay-ms=4"})
 @AutoConfigureMockMvc
+@Import(MutableClock.Config.class)
 public abstract class AbstractIntegrationTest {
     @Autowired protected TenantService tenantService;
     @Autowired protected TemplateService templateService;
@@ -36,12 +38,14 @@ public abstract class AbstractIntegrationTest {
     @Autowired protected ChannelExecutors executors;
     @Autowired protected ChannelRegistry registry;
     @Autowired protected JdbcTemplate jdbc;
+    @Autowired protected MutableClock clock;
 
     protected ScriptedChannel email;
     private static final AtomicInteger SEQ = new AtomicInteger();
 
     @BeforeEach
     void cleanSlate() {
+        clock.reset();
         jdbc.update("delete from notification_events");
         jdbc.update("delete from notification_attempts");
         jdbc.update("delete from notifications");
@@ -77,7 +81,7 @@ public abstract class AbstractIntegrationTest {
         for (int i = 0; i < maxCycles; i++) {
             dispatcher.runOnce();
             executors.awaitIdle(2000);
-            Thread.sleep(5);
+            clock.advance(java.time.Duration.ofMillis(10)); // lets retry backoff (<= a few ms in tests) elapse without sleeping
         }
     }
 }
