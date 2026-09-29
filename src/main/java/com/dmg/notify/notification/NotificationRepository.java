@@ -44,6 +44,10 @@ public interface NotificationRepository extends JpaRepository<Notification, Stri
             + "where n.id = :id and n.status = 'PENDING' and n.nextAttemptAt <= :now")
     int claim(@Param("id") String id, @Param("now") Instant now, @Param("lease") Instant lease);
 
+    @Query("select n.tenantId, n.status, count(n) from Notification n where n.createdAt >= :from and n.createdAt < :to "
+            + "group by n.tenantId, n.status")
+    List<Object[]> countByTenantAndStatus(@Param("from") Instant from, @Param("to") Instant to);
+
     @Query("select t.name, n.status, count(n) from Notification n, Template t where t.id = n.templateId "
             + "and n.tenantId = :tenantId and n.channel in :channels and n.createdAt >= :from and n.createdAt < :to "
             + "group by t.name, n.status")

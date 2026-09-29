@@ -18,7 +18,7 @@ public class SecurityConfig {
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
-                        .requestMatchers("/api/v1/tenants/**", "/api/v1/limits/**").hasRole("PLATFORM_ADMIN")
+                        .requestMatchers("/api/v1/tenants/**", "/api/v1/limits/**", "/api/v1/platform/**").hasRole("PLATFORM_ADMIN")
                         .requestMatchers("/api/v1/**").hasRole("TENANT_ADMIN")
                         .anyRequest().denyAll())
                 .httpBasic(Customizer.withDefaults());

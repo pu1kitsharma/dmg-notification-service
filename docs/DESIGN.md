@@ -3,7 +3,7 @@
 ## Core decisions (the "why" for the video)
 | Concern | Decision | Reason |
 |---|---|---|
-| Queue | DB-backed outbox (`notifications` table is the queue); poller claims rows with an atomic compare-and-set `UPDATE ... WHERE status='PENDING'` + lease (portable across H2/Postgres, no `SKIP LOCKED` needed) | Durable, no broker needed, survives restart; there is no separate queue abstraction: the poller (`Dispatcher`) and worker (`DeliveryWorker`) are the only pieces that would change to consume from a broker like Kafka/RabbitMQ) |
+| Queue | DB-backed outbox (`notifications` table is the queue); poller claims rows with an atomic compare-and-set `UPDATE ... WHERE status='PENDING'` + lease (portable across H2/Postgres, no `SKIP LOCKED` needed) | Durable, no broker needed, survives restart; there is no separate queue abstraction: the poller (`Dispatcher`) and worker (`DeliveryWorker`) are the only pieces that would change to consume from a broker like Kafka/RabbitMQ |
 | Workers | One bounded `ThreadPoolExecutor` per channel (fixed queue, `CallerRunsPolicy` avoided → reject + re-lease) | Channel isolation: slow SMS provider can't starve email |
 | Fairness | Per-tenant round-robin claim: claim at most N rows per tenant per poll cycle; disabled and saturated channels are excluded in the query so they cannot occupy a tenant's batch | One noisy tenant can't monopolise workers |
 | Rate limit | Per-tenant token bucket (lock-free CAS on `AtomicLong` nanos/tokens) + global limit; over-limit → the row simply stays `PENDING` and is picked up by a later poll cycle once tokens refill (`next_attempt_at` is not changed, nothing is dropped); unused permits are refunded | Classic DSA, testable under concurrency |

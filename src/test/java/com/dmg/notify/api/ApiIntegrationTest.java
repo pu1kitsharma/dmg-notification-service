@@ -79,6 +79,37 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void platformAdminSeesACrossTenantReportAndTenantAdminsCannot() throws Exception {
+        RequestPostProcessor a = createTenant("plat-a");
+        RequestPostProcessor b = createTenant("plat-b");
+        createTemplate(a);
+        createTemplate(b);
+        for (int i = 0; i < 3; i++) {
+            mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content(SUBMIT)).andExpect(status().isAccepted());
+        }
+        mvc.perform(post("/api/v1/notifications").with(b).contentType(MediaType.APPLICATION_JSON)
+                .content(SUBMIT.replace("a@b.com", "fail-permanent@x.com"))).andExpect(status().isAccepted());
+        drain(4);
+
+        mvc.perform(get("/api/v1/platform/reports/delivery").with(platform))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(4))
+                .andExpect(jsonPath("$.byStatus.SENT").value(3))
+                .andExpect(jsonPath("$.byStatus.DEAD").value(1))
+                .andExpect(jsonPath("$.successRate").value(0.75))
+                .andExpect(jsonPath("$.tenants.length()").value(2))
+                .andExpect(jsonPath("$.tenants[0].name").value("plat-a")) // busiest tenant first
+                .andExpect(jsonPath("$.tenants[0].total").value(3))
+                .andExpect(jsonPath("$.tenants[1].byStatus.DEAD").value(1));
+        mvc.perform(get("/api/v1/platform/reports/delivery?to=2000-01-01T00:00:00Z").with(platform))
+                .andExpect(jsonPath("$.total").value(0)).andExpect(jsonPath("$.tenants.length()").value(0));
+        mvc.perform(get("/api/v1/platform/reports/delivery?from=2999-01-01T00:00:00Z&to=2000-01-01T00:00:00Z").with(platform))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/platform/reports/delivery").with(a)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/platform/reports/delivery")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void badRequestMessagesDoNotLeakInternalClassNames() throws Exception {
         RequestPostProcessor a = createTenant("leak");
         createTemplate(a);
