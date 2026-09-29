@@ -59,12 +59,13 @@ public class DeliveryOutcomeService {
                 permanent ? Outcome.PERMANENT_FAILURE : Outcome.TRANSIENT_FAILURE, error, startedAt, now));
         n.setLastError(error);
         int maxAttempts = tenants.findById(n.getTenantId()).map(t -> t.getMaxAttempts()).orElse(1);
+        int budgetUsed = attemptNo - n.getAttemptBase(); // attempts since creation or the last replay
         if (permanent) {
             state.transition(n, NotificationStatus.DEAD, "permanent failure: " + error);
-        } else if (attemptNo - n.getAttemptBase() >= maxAttempts) {
+        } else if (budgetUsed >= maxAttempts) {
             state.transition(n, NotificationStatus.DEAD, "retries exhausted after " + attemptNo + " attempts: " + error);
         } else {
-            n.setNextAttemptAt(now.plus(retryPolicy.delayAfter(attemptNo)));
+            n.setNextAttemptAt(now.plus(retryPolicy.delayAfter(budgetUsed))); // backoff restarts with the budget
             state.transition(n, NotificationStatus.PENDING, "transient failure, will retry: " + error);
         }
     }
