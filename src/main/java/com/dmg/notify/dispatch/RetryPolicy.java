@@ -9,13 +9,23 @@ import org.springframework.stereotype.Component;
 /** Exponential backoff with "equal jitter": half deterministic, half random, to avoid retry stampedes. */
 @Component
 public class RetryPolicy {
+    /**
+     * ThreadLocalRandom must be obtained on the thread that uses it ("ThreadLocalRandom.current().nextX(...)"), never
+     * captured once and shared, so this delegates on every call. (On JDK 17/23 a captured instance happened to behave,
+     * but that is not part of the contract.)
+     */
+    private static final RandomGenerator PER_THREAD = new RandomGenerator() {
+        @Override public long nextLong() { return ThreadLocalRandom.current().nextLong(); }
+        @Override public long nextLong(long bound) { return ThreadLocalRandom.current().nextLong(bound); }
+    };
+
     private final long baseMs;
     private final long maxMs;
     private final RandomGenerator random;
 
     @Autowired
     public RetryPolicy(RetryProperties props) {
-        this(props.baseDelayMs(), props.maxDelayMs(), ThreadLocalRandom.current());
+        this(props.baseDelayMs(), props.maxDelayMs(), PER_THREAD);
     }
 
     public RetryPolicy(long baseMs, long maxMs, RandomGenerator random) {
