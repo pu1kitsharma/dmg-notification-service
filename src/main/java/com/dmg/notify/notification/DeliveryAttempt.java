@@ -1,11 +1,14 @@
 package com.dmg.notify.notification;
 
+import com.dmg.notify.common.Text;
 import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
 @Table(name = "notification_attempts")
 public class DeliveryAttempt {
+    static final int ERROR_MAX = 1000; // notification_attempts.error VARCHAR(1000)
+
     public enum Outcome { SUCCESS, TRANSIENT_FAILURE, PERMANENT_FAILURE }
 
     @Id
@@ -26,7 +29,7 @@ public class DeliveryAttempt {
         this.notificationId = notificationId;
         this.attemptNo = attemptNo;
         this.outcome = outcome;
-        this.error = error;
+        this.error = Text.truncate(error, ERROR_MAX);
         this.startedAt = startedAt;
         this.finishedAt = finishedAt;
     }

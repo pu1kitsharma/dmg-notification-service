@@ -317,6 +317,30 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void veryLongProviderErrorsAreStoredTruncatedAndPermanentFailureIsNotRetried() throws Exception {
+        Tenant t = newTenant(1000, 1000, 5);
+        Notification perm = submit(t, "long-permanent@example.com");
+        Notification trans = submit(t, "long-transient@example.com");
+
+        drain(3);
+
+        // permanent: recorded as DEAD after ONE provider call (the outcome transaction must not blow up on the length)
+        assertThat(statusOf(perm.getId())).isEqualTo(NotificationStatus.DEAD);
+        assertThat(email.calls.get(perm.getId()).get()).isEqualTo(1);
+        assertThat(attempts.findByNotificationIdOrderByIdAsc(perm.getId())).singleElement()
+                .satisfies(a -> assertThat(a.getError()).startsWith("SMTP 550").hasSizeLessThanOrEqualTo(1000));
+        assertThat(events.findByNotificationIdOrderByIdAsc(perm.getId()).stream().reduce((x, y) -> y).orElseThrow().getReason())
+                .startsWith("permanent failure: SMTP 550").hasSizeLessThanOrEqualTo(500);
+        assertThat(notificationRepo.findById(perm.getId()).orElseThrow().getLastError()).hasSizeLessThanOrEqualTo(1000);
+
+        // transient with a 2000-char error: the attempt row and the audit reason are recorded, and it goes back to PENDING
+        assertThat(attempts.findByNotificationIdOrderByIdAsc(trans.getId())).isNotEmpty().allSatisfy(
+                a -> assertThat(a.getError()).hasSizeLessThanOrEqualTo(1000));
+        assertThat(events.findByNotificationIdOrderByIdAsc(trans.getId())).allSatisfy(
+                e -> assertThat(e.getReason() == null ? 0 : e.getReason().length()).isLessThanOrEqualTo(500));
+    }
+
+    @Test
     void cancelledNotificationIsNeverSent() throws Exception {
         Tenant t = newTenant(1000, 1000, 3);
         Notification n = submitAt(t, "a@example.com", clock.instant().plusSeconds(60));

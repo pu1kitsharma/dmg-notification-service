@@ -22,6 +22,8 @@ class ScriptedChannel implements Channel {
     public void send(DeliveryRequest r) {
         senderIds.put(r.deliveryKey(), String.valueOf(r.senderId()));
         int call = calls.computeIfAbsent(r.deliveryKey(), k -> new AtomicInteger()).incrementAndGet();
+        if (r.recipient().contains("long-permanent")) throw new PermanentChannelException("SMTP 550 " + "x".repeat(600));
+        if (r.recipient().contains("long-transient")) throw new TransientChannelException("gateway said " + "y".repeat(2000));
         if (r.recipient().contains("fail-permanent")) throw new PermanentChannelException("bad recipient");
         if (r.recipient().contains("fail-always") || call <= transientFailuresPerKey) {
             throw new TransientChannelException("provider down");

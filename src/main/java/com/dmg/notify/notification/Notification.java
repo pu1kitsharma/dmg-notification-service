@@ -1,6 +1,7 @@
 package com.dmg.notify.notification;
 
 import com.dmg.notify.channel.ChannelType;
+import com.dmg.notify.common.Text;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -77,5 +78,5 @@ public class Notification {
     public void setAttemptBase(int n) { this.attemptBase = n; }
     public void setNextAttemptAt(Instant t) { this.nextAttemptAt = t; }
     public void setLeaseUntil(Instant t) { this.leaseUntil = t; }
-    public void setLastError(String e) { this.lastError = e == null ? null : e.substring(0, Math.min(e.length(), 1000)); }
+    public void setLastError(String e) { this.lastError = Text.truncate(e, 1000); }
 }

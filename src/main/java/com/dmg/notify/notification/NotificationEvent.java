@@ -1,5 +1,6 @@
 package com.dmg.notify.notification;
 
+import com.dmg.notify.common.Text;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -7,6 +8,8 @@ import java.time.Instant;
 @Entity
 @Table(name = "notification_events")
 public class NotificationEvent {
+    static final int REASON_MAX = 500; // notification_events.reason VARCHAR(500)
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -29,7 +32,7 @@ public class NotificationEvent {
         this.fromStatus = from;
         this.toStatus = to;
         this.attemptNo = attemptNo;
-        this.reason = reason;
+        this.reason = Text.truncate(reason, REASON_MAX);
         this.createdAt = createdAt;
     }
 
