@@ -44,8 +44,9 @@ public abstract class AbstractIntegrationTest {
     private static final AtomicInteger SEQ = new AtomicInteger();
 
     @BeforeEach
-    void cleanSlate() {
+    void cleanSlate() throws InterruptedException {
         clock.reset();
+        executors.awaitIdle(10_000); // a straggling worker from the previous test must not write audit rows mid-cleanup
         jdbc.update("delete from notification_events");
         jdbc.update("delete from notification_attempts");
         jdbc.update("delete from notifications");
