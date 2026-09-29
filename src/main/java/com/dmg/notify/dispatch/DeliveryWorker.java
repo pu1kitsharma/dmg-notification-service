@@ -2,6 +2,8 @@ package com.dmg.notify.dispatch;
 
 import com.dmg.notify.channel.Channel.DeliveryRequest;
 import com.dmg.notify.channel.Channel.PermanentChannelException;
+import com.dmg.notify.channel.ChannelConfig;
+import com.dmg.notify.channel.ChannelConfigRepository;
 import com.dmg.notify.channel.ChannelRegistry;
 import com.dmg.notify.notification.Notification;
 import com.dmg.notify.notification.NotificationRepository;
@@ -23,13 +25,15 @@ public class DeliveryWorker {
 
     private final NotificationRepository notifications;
     private final ChannelRegistry channels;
+    private final ChannelConfigRepository channelConfigs;
     private final DeliveryOutcomeService outcomes;
     private final Clock clock;
 
     public DeliveryWorker(NotificationRepository notifications, ChannelRegistry channels,
-                          DeliveryOutcomeService outcomes, Clock clock) {
+                          ChannelConfigRepository channelConfigs, DeliveryOutcomeService outcomes, Clock clock) {
         this.notifications = notifications;
         this.channels = channels;
+        this.channelConfigs = channelConfigs;
         this.outcomes = outcomes;
         this.clock = clock;
     }
@@ -40,8 +44,10 @@ public class DeliveryWorker {
             if (n == null || n.getStatus() != NotificationStatus.PROCESSING || n.getAttemptCount() != attemptNo) return;
             Instant started = clock.instant();
             try {
+                String senderId = channelConfigs.findByTenantIdAndChannel(n.getTenantId(), n.getChannel())
+                        .map(ChannelConfig::getSenderId).orElse(null);
                 channels.get(n.getChannel()).send(new DeliveryRequest(
-                        n.getId(), n.getTenantId(), n.getRecipient(), n.getSubject(), n.getBody()));
+                        n.getId(), n.getTenantId(), n.getRecipient(), n.getSubject(), n.getBody(), senderId));
             } catch (PermanentChannelException e) {
                 outcomes.recordFailure(id, attemptNo, e.getMessage(), true, started);
                 return;

@@ -1,5 +1,8 @@
 package com.dmg.notify.dispatch;
 
+import com.dmg.notify.channel.ChannelConfig;
+import com.dmg.notify.channel.ChannelConfigRepository;
+import com.dmg.notify.channel.ChannelType;
 import com.dmg.notify.notification.Notification;
 import com.dmg.notify.notification.NotificationRepository;
 import com.dmg.notify.notification.NotificationStateMachine;
@@ -11,6 +14,9 @@ import com.dmg.notify.tenant.TenantRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -39,13 +45,15 @@ public class Dispatcher {
     private final ChannelExecutors executors;
     private final DeliveryWorker worker;
     private final DeliveryOutcomeService outcomes;
+    private final ChannelConfigRepository channelConfigs;
     private final DispatchProperties props;
     private final Clock clock;
     private final AtomicInteger cursor = new AtomicInteger();
 
     public Dispatcher(NotificationRepository notifications, NotificationStateMachine state, TenantRepository tenants,
                       GlobalLimitRepository globalLimits, RateLimitService rateLimits, ChannelExecutors executors,
-                      DeliveryWorker worker, DeliveryOutcomeService outcomes, DispatchProperties props, Clock clock) {
+                      DeliveryWorker worker, DeliveryOutcomeService outcomes, ChannelConfigRepository channelConfigs,
+                      DispatchProperties props, Clock clock) {
         this.notifications = notifications;
         this.state = state;
         this.tenants = tenants;
@@ -54,6 +62,7 @@ public class Dispatcher {
         this.executors = executors;
         this.worker = worker;
         this.outcomes = outcomes;
+        this.channelConfigs = channelConfigs;
         this.props = props;
         this.clock = clock;
     }
@@ -76,7 +85,11 @@ public class Dispatcher {
         for (Long tenantId : tenantIds) {
             Tenant tenant = tenantById.get(tenantId);
             if (tenant == null || !tenant.isActive()) continue;
-            List<Notification> due = notifications.findDue(tenantId, now, PageRequest.of(0, props.batchPerTenant()));
+            // rows of a channel the tenant admin disabled stay PENDING (resume on re-enable) and must not
+            // occupy the batch, so they are excluded in the query instead of skipped afterwards
+            List<ChannelType> enabled = enabledChannels(tenantId);
+            if (enabled.isEmpty()) continue;
+            List<Notification> due = notifications.findDue(tenantId, enabled, now, PageRequest.of(0, props.batchPerTenant()));
             for (Notification n : due) {
                 if (!rateLimits.tryAcquire(tenantId, tenant.getRatePerSecond(), tenant.getBurst(),
                         global.getRatePerSecond(), global.getBurst())) {
@@ -99,6 +112,12 @@ public class Dispatcher {
             }
         }
         return dispatched;
+    }
+
+    private List<ChannelType> enabledChannels(long tenantId) {
+        Set<ChannelType> disabled = EnumSet.noneOf(ChannelType.class);
+        for (ChannelConfig c : channelConfigs.findByTenantId(tenantId)) if (!c.isEnabled()) disabled.add(c.getChannel());
+        return Arrays.stream(ChannelType.values()).filter(t -> !disabled.contains(t)).toList();
     }
 
     private void reclaimExpiredLeases(Instant now) {

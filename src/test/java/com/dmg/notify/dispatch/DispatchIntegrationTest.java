@@ -2,9 +2,14 @@ package com.dmg.notify.dispatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.dmg.notify.channel.ChannelConfig;
+import com.dmg.notify.channel.ChannelConfigRepository;
+import com.dmg.notify.channel.ChannelType;
 import com.dmg.notify.notification.DeliveryAttemptRepository;
 import com.dmg.notify.notification.Notification;
+import com.dmg.notify.notification.NotificationDtos.SubmitRequest;
 import com.dmg.notify.notification.NotificationEvent;
+import com.dmg.notify.template.TemplateService;
 import com.dmg.notify.notification.NotificationEventRepository;
 import com.dmg.notify.notification.NotificationStateMachine;
 import com.dmg.notify.notification.NotificationStatus;
@@ -12,6 +17,7 @@ import com.dmg.notify.tenant.Tenant;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -24,6 +30,7 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     @Autowired DeliveryAttemptRepository attempts;
     @Autowired NotificationStateMachine stateMachine;
     @Autowired DeliveryOutcomeService outcomesRef;
+    @Autowired ChannelConfigRepository channelConfigs;
 
     @Test
     void deliversAndWritesFullAuditTrail() throws Exception {
@@ -214,6 +221,52 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
 
         assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.DEAD);
         assertThat(email.calls.get(n.getId()).get()).isEqualTo(4); // 2 + 2, not 3
+    }
+
+    @Test
+    void channelDisabledAfterSubmitKeepsQueuedRowsPendingUntilReEnabled() throws Exception {
+        Tenant t = newTenant(1000, 1000, 3);
+        Notification n = submit(t, "a@example.com");
+        ChannelConfig cfg = channelConfigs.save(new ChannelConfig(t.getId(), ChannelType.EMAIL, false, null));
+
+        drain(3);
+        assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.PENDING);
+        assertThat(email.calls).isEmpty();
+
+        cfg.update(true, null);
+        channelConfigs.save(cfg);
+        drain(3);
+        assertThat(statusOf(n.getId())).isEqualTo(NotificationStatus.SENT);
+    }
+
+    @Test
+    void disabledChannelRowsDoNotStarveEnabledChannelsOfTheSameTenant() throws Exception {
+        Tenant t = newTenant(1000, 1000, 3);
+        templateService.create(t.getId(), new TemplateService.CreateTemplateRequest("welcome", ChannelType.SMS, null, "Hi {{name}}"));
+        ScriptedChannel sms = new ScriptedChannel(ChannelType.SMS);
+        registry.register(sms);
+        for (int i = 0; i < 25; i++) { // more than batch-per-tenant (10), all older than the email below
+            notificationService.submit(t.getId(), new SubmitRequest(ChannelType.SMS, "welcome", "+1555000" + (1000 + i),
+                    Map.of("name", "x"), null), null);
+        }
+        Notification mail = submit(t, "a@example.com");
+        channelConfigs.save(new ChannelConfig(t.getId(), ChannelType.SMS, false, null)); // disabled after queuing
+
+        drain(2);
+
+        assertThat(statusOf(mail.getId())).isEqualTo(NotificationStatus.SENT);
+        assertThat(sms.calls).isEmpty();
+    }
+
+    @Test
+    void configuredSenderIdReachesTheProvider() throws Exception {
+        Tenant t = newTenant(1000, 1000, 3);
+        channelConfigs.save(new ChannelConfig(t.getId(), ChannelType.EMAIL, true, "noreply@acme.test"));
+        Notification n = submit(t, "a@example.com");
+
+        drain(3);
+
+        assertThat(email.senderIds.get(n.getId())).isEqualTo("noreply@acme.test");
     }
 
     @Test

@@ -26,8 +26,9 @@ public interface NotificationRepository extends JpaRepository<Notification, Stri
     List<Long> tenantsWithDue(@Param("now") Instant now);
 
     @Query("select n from Notification n where n.tenantId = :tenantId and n.status = 'PENDING' "
-            + "and n.nextAttemptAt <= :now order by n.nextAttemptAt")
-    List<Notification> findDue(@Param("tenantId") Long tenantId, @Param("now") Instant now, Pageable pageable);
+            + "and n.channel in :channels and n.nextAttemptAt <= :now order by n.nextAttemptAt")
+    List<Notification> findDue(@Param("tenantId") Long tenantId, @Param("channels") List<ChannelType> channels,
+                               @Param("now") Instant now, Pageable pageable);
 
     @Query("select n from Notification n where n.status = 'PROCESSING' and n.leaseUntil < :now")
     List<Notification> findExpiredLeases(@Param("now") Instant now);

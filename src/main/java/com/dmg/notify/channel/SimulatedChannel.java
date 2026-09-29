@@ -40,6 +40,6 @@ public class SimulatedChannel implements Channel {
                 throw new TransientChannelException("interrupted");
             }
         }
-        log.info("[{}] delivered {} to {}", type, r.deliveryKey(), r.recipient());
+        log.info("[{}] delivered {} to {} (sender {})", type, r.deliveryKey(), r.recipient(), r.senderId());
     }
 }

@@ -11,6 +11,7 @@ class ScriptedChannel implements Channel {
     private final ChannelType type;
     final Map<String, AtomicInteger> calls = new ConcurrentHashMap<>();
     final Map<String, AtomicInteger> successes = new ConcurrentHashMap<>();
+    final Map<String, String> senderIds = new ConcurrentHashMap<>();
     volatile int transientFailuresPerKey = 0;
 
     ScriptedChannel(ChannelType type) { this.type = type; }
@@ -19,6 +20,7 @@ class ScriptedChannel implements Channel {
 
     @Override
     public void send(DeliveryRequest r) {
+        senderIds.put(r.deliveryKey(), String.valueOf(r.senderId()));
         int call = calls.computeIfAbsent(r.deliveryKey(), k -> new AtomicInteger()).incrementAndGet();
         if (r.recipient().contains("fail-permanent")) throw new PermanentChannelException("bad recipient");
         if (r.recipient().contains("fail-always") || call <= transientFailuresPerKey) {

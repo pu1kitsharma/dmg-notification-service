@@ -9,7 +9,9 @@ public interface Channel {
 
     void send(DeliveryRequest request);
 
-    record DeliveryRequest(String deliveryKey, long tenantId, String recipient, String subject, String body) {}
+    /** {@code senderId} is the tenant's configured sender (from address, SMS sender id, ...); may be null. */
+    record DeliveryRequest(String deliveryKey, long tenantId, String recipient, String subject, String body,
+                           String senderId) {}
 
     class TransientChannelException extends RuntimeException {
         public TransientChannelException(String message) { super(message); }
