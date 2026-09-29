@@ -18,6 +18,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -107,9 +108,17 @@ public class NotificationService {
         return new NotificationDetail(NotificationResponse.from(n), ev, at);
     }
 
-    public Page<Notification> list(long tenantId, NotificationStatus status, int page, int size) {
+    /** Tenant-scoped, newest first; every filter is optional. {@code from} inclusive, {@code to} exclusive (createdAt). */
+    public Page<Notification> list(long tenantId, NotificationStatus status, ChannelType channel,
+                                   Instant from, Instant to, int page, int size) {
         PageRequest pr = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100), Sort.by(Sort.Direction.DESC, "createdAt"));
-        return status == null ? notifications.findByTenantId(tenantId, pr) : notifications.findByTenantIdAndStatus(tenantId, status, pr);
+        if (from != null && to != null && !from.isBefore(to)) throw new ApiException.BadRequest("'from' must be before 'to'");
+        Specification<Notification> spec = (root, q, cb) -> cb.equal(root.get("tenantId"), tenantId);
+        if (status != null) spec = spec.and((root, q, cb) -> cb.equal(root.get("status"), status));
+        if (channel != null) spec = spec.and((root, q, cb) -> cb.equal(root.get("channel"), channel));
+        if (from != null) spec = spec.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), from));
+        if (to != null) spec = spec.and((root, q, cb) -> cb.lessThan(root.<Instant>get("createdAt"), to));
+        return notifications.findAll(spec, pr);
     }
 
     public Notification cancel(long tenantId, String id) { return state.cancel(id, tenantId); }

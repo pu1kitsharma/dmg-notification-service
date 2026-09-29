@@ -138,6 +138,47 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void reportBreaksDownByTemplateAndFailureReason() throws Exception {
+        RequestPostProcessor a = createTenant("rep");
+        createTemplate(a);
+        for (String r : new String[] {"a@b.com", "c@d.com", "fail-permanent@x.com"}) {
+            mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON)
+                    .content(SUBMIT.replace("a@b.com", r))).andExpect(status().isAccepted());
+        }
+        drain(4);
+
+        mvc.perform(get("/api/v1/reports/delivery").with(a))
+                .andExpect(jsonPath("$.total").value(3))
+                .andExpect(jsonPath("$.successRate").value(2.0 / 3))
+                .andExpect(jsonPath("$.byTemplate[0].template").value("welcome"))
+                .andExpect(jsonPath("$.byTemplate[0].byStatus.SENT").value(2))
+                .andExpect(jsonPath("$.byTemplate[0].byStatus.DEAD").value(1))
+                .andExpect(jsonPath("$.topFailures[0].count").value(1));
+        mvc.perform(get("/api/v1/reports/delivery?channel=SMS").with(a))
+                .andExpect(jsonPath("$.total").value(0))
+                .andExpect(jsonPath("$.byTemplate.length()").value(0))
+                .andExpect(jsonPath("$.successRate").doesNotExist());
+    }
+
+    @Test
+    void listFiltersByStatusChannelAndDate() throws Exception {
+        RequestPostProcessor a = createTenant("flt");
+        createTemplate(a);
+        mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content(SUBMIT))
+                .andExpect(status().isAccepted());
+        mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content(SUBMIT.replace("a@b.com", "fail-permanent@x.com"))).andExpect(status().isAccepted());
+        drain(4);
+
+        mvc.perform(get("/api/v1/notifications?status=DEAD").with(a)).andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(get("/api/v1/notifications?channel=EMAIL").with(a)).andExpect(jsonPath("$.totalElements").value(2));
+        mvc.perform(get("/api/v1/notifications?channel=SMS").with(a)).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get("/api/v1/notifications?to=2000-01-01T00:00:00Z").with(a)).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get("/api/v1/notifications?from=2999-01-01T00:00:00Z&to=2000-01-01T00:00:00Z").with(a))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void replayIsOnlyForDeadAndTenantScoped() throws Exception {
         RequestPostProcessor a = createTenant("rp-a");
         RequestPostProcessor b = createTenant("rp-b");

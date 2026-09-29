@@ -43,8 +43,8 @@ Recipients containing `fail-transient` / `fail-permanent` make the simulated pro
 | PLATFORM_ADMIN | `POST/GET /api/v1/tenants`, `GET/PATCH /api/v1/tenants/{id}` (activate, rate, burst, maxAttempts), `GET/PUT /api/v1/limits/global` |
 | TENANT_ADMIN | `POST/GET /api/v1/templates`, `GET /api/v1/templates/{id}` |
 | | `GET /api/v1/channels`, `PUT /api/v1/channels/{EMAIL\|SMS\|PUSH\|IN_APP}` |
-| | `POST /api/v1/notifications` (202 new / 200 idempotent replay), `GET /api/v1/notifications?status=&page=&size=`, `GET /api/v1/notifications/{id}`, `POST /api/v1/notifications/{id}/cancel`, `POST /api/v1/notifications/{id}/replay` (DEAD only) |
-| | `GET /api/v1/reports/delivery?from=&to=&channel=` |
+| | `POST /api/v1/notifications` (202 new / 200 idempotent replay), `GET /api/v1/notifications?status=&channel=&from=&to=&page=&size=`, `GET /api/v1/notifications/{id}`, `POST /api/v1/notifications/{id}/cancel`, `POST /api/v1/notifications/{id}/replay` (DEAD only) |
+| | `GET /api/v1/reports/delivery?from=&to=&channel=` (totals, success rate, by channel/status, by template, top 5 dead-letter reasons) |
 
 Errors are RFC 7807 problem details: 400 validation, 401 unauthenticated, 403 wrong role/deactivated tenant, 404 not found (also for other tenants' data), 409 conflict, 422 template variables missing.
 

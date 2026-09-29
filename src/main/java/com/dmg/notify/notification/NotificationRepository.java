@@ -1,5 +1,6 @@
 package com.dmg.notify.notification;
 
+import com.dmg.notify.channel.ChannelType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -7,10 +8,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface NotificationRepository extends JpaRepository<Notification, String> {
+public interface NotificationRepository extends JpaRepository<Notification, String>, JpaSpecificationExecutor<Notification> {
 
     Optional<Notification> findByIdAndTenantId(String id, Long tenantId);
 
@@ -39,6 +41,18 @@ public interface NotificationRepository extends JpaRepository<Notification, Stri
             + "n.attemptCount = n.attemptCount + 1, n.updatedAt = :now, n.version = n.version + 1 "
             + "where n.id = :id and n.status = 'PENDING' and n.nextAttemptAt <= :now")
     int claim(@Param("id") String id, @Param("now") Instant now, @Param("lease") Instant lease);
+
+    @Query("select t.name, n.status, count(n) from Notification n, Template t where t.id = n.templateId "
+            + "and n.tenantId = :tenantId and n.channel in :channels and n.createdAt >= :from and n.createdAt < :to "
+            + "group by t.name, n.status")
+    List<Object[]> countByTemplateAndStatus(@Param("tenantId") Long tenantId, @Param("channels") List<ChannelType> channels,
+                                            @Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("select n.lastError, count(n) from Notification n where n.tenantId = :tenantId and n.status = 'DEAD' "
+            + "and n.channel in :channels and n.createdAt >= :from and n.createdAt < :to "
+            + "group by n.lastError order by count(n) desc")
+    List<Object[]> topDeadReasons(@Param("tenantId") Long tenantId, @Param("channels") List<ChannelType> channels,
+                                  @Param("from") Instant from, @Param("to") Instant to, Pageable pageable);
 
     @Query("select n.channel, n.status, count(n) from Notification n where n.tenantId = :tenantId "
             + "and n.createdAt >= :from and n.createdAt < :to group by n.channel, n.status")

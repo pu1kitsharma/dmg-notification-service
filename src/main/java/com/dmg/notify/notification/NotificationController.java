@@ -3,7 +3,10 @@ package com.dmg.notify.notification;
 import com.dmg.notify.notification.NotificationDtos.*;
 import com.dmg.notify.notification.NotificationService.SubmitResult;
 import com.dmg.notify.security.TenantContext;
+import com.dmg.notify.channel.ChannelType;
 import jakarta.validation.Valid;
+import java.time.Instant;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,9 +35,12 @@ public class NotificationController {
 
     @GetMapping
     public Page<NotificationResponse> list(@RequestParam(required = false) NotificationStatus status,
+                                           @RequestParam(required = false) ChannelType channel,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
                                            @RequestParam(defaultValue = "0") int page,
                                            @RequestParam(defaultValue = "20") int size) {
-        return service.list(TenantContext.requireTenantId(), status, page, size).map(NotificationResponse::from);
+        return service.list(TenantContext.requireTenantId(), status, channel, from, to, page, size).map(NotificationResponse::from);
     }
 
     /** Re-drive a DEAD notification (e.g. after the provider outage that killed it is fixed). */
