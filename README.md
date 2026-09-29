@@ -20,7 +20,7 @@ For PostgreSQL set `spring.datasource.url/username/password`; the Flyway migrati
 
 ```bash
 H='Content-Type: application/json'
-PLATFORM="admin:$APP_BOOTSTRAP_ADMIN_PASSWORD"   # default password is in application.yml (dev only)
+PLATFORM="admin:${APP_BOOTSTRAP_ADMIN_PASSWORD:-admin12345}"   # dev default; see application.yml
 TENANT="acme-admin:<the adminPassword you chose>"
 # platform admin creates a tenant (+ its admin user)
 curl -u "$PLATFORM" -H "$H" -X POST localhost:8080/api/v1/tenants \
@@ -33,6 +33,8 @@ curl -u "$TENANT" -H "$H" -H 'Idempotency-Key: order-42' -X POST localhost:8080/
 curl -u "$TENANT" localhost:8080/api/v1/notifications/<id>     # status + audit events + attempts
 curl -u "$TENANT" localhost:8080/api/v1/reports/delivery
 ```
+
+With the app running, `docs/smoke.sh` exercises the whole flow end to end (RBAC, idempotency, retries/DEAD, replay, batch, reports).
 
 Recipients containing `fail-transient` / `fail-permanent` make the simulated provider fail, for demos.
 
