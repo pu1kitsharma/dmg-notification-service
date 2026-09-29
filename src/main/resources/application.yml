@@ -3,5 +3,23 @@ spring:
     url: jdbc:h2:mem:notify;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
   jpa:
     hibernate.ddl-auto: validate
+    open-in-view: false
   flyway:
     enabled: true
+
+app:
+  bootstrap:
+    admin-username: admin
+    admin-password: admin12345   # dev only, override with APP_BOOTSTRAP_ADMIN_PASSWORD
+  dispatch:
+    enabled: true
+    poll-interval-ms: 500
+    batch-per-tenant: 10
+    lease-seconds: 60
+    pool-size: 4
+    queue-capacity: 100
+  retry:
+    base-delay-ms: 2000
+    max-delay-ms: 300000
+  channels:
+    latency-ms: 0
