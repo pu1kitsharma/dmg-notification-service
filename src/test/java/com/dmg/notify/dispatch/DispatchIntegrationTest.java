@@ -285,6 +285,37 @@ class DispatchIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void concurrentSubmitsWithTheSameKeyCreateExactlyOneRow() throws Exception {
+        Tenant t = newTenant(1000, 1000, 3);
+        SubmitRequest same = new SubmitRequest(ChannelType.EMAIL, "welcome", "a@example.com", Map.of("name", "Ada"), null);
+        SubmitRequest different = new SubmitRequest(ChannelType.EMAIL, "welcome", "b@example.com", Map.of("name", "Ada"), null);
+        int threads = 16;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger conflicts = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.Set<String> ids = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        for (int i = 0; i < threads; i++) {
+            SubmitRequest req = i % 4 == 3 ? different : same; // a quarter of the callers send a different payload
+            pool.submit(() -> {
+                start.await();
+                try {
+                    ids.add(notificationService.submit(t.getId(), req, "race-key").notification().getId());
+                } catch (com.dmg.notify.common.ApiException.Conflict e) {
+                    conflicts.incrementAndGet();
+                }
+                return null;
+            });
+        }
+        start.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(ids).hasSize(1); // every accepted/replayed call resolves to the single winning row
+        assertThat(jdbc.queryForObject("select count(*) from notifications where tenant_id = ?", Long.class, t.getId())).isEqualTo(1L);
+        assertThat(conflicts.get()).isGreaterThan(0); // callers whose payload differs from the winner's are rejected
+    }
+
+    @Test
     void cancelledNotificationIsNeverSent() throws Exception {
         Tenant t = newTenant(1000, 1000, 3);
         Notification n = submitAt(t, "a@example.com", Instant.now().plusSeconds(60));

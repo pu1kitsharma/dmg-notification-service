@@ -20,6 +20,7 @@ public class Notification {
     @Enumerated(EnumType.STRING)
     private NotificationStatus status;
     private String idempotencyKey;
+    private String requestHash;
     private Instant scheduledAt;
     private Instant nextAttemptAt;
     private int attemptCount;
@@ -59,6 +60,7 @@ public class Notification {
     public String getBody() { return body; }
     public NotificationStatus getStatus() { return status; }
     public String getIdempotencyKey() { return idempotencyKey; }
+    public String getRequestHash() { return requestHash; }
     public Instant getScheduledAt() { return scheduledAt; }
     public Instant getNextAttemptAt() { return nextAttemptAt; }
     public int getAttemptCount() { return attemptCount; }
@@ -68,6 +70,7 @@ public class Notification {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
+    public void setRequestHash(String h) { this.requestHash = h; }
     void setStatus(NotificationStatus s) { this.status = s; }
     void setUpdatedAt(Instant t) { this.updatedAt = t; }
     public void setAttemptCount(int n) { this.attemptCount = n; }

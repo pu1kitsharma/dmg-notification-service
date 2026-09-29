@@ -79,6 +79,30 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void idempotencyKeyReusedWithDifferentPayloadIsRejected() throws Exception {
+        RequestPostProcessor a = createTenant("idem2");
+        createTemplate(a);
+        mvc.perform(post("/api/v1/notifications").with(a).header("Idempotency-Key", "k-9")
+                .contentType(MediaType.APPLICATION_JSON).content(SUBMIT)).andExpect(status().isAccepted());
+
+        // different recipient, different variable value: both are different requests
+        mvc.perform(post("/api/v1/notifications").with(a).header("Idempotency-Key", "k-9")
+                .contentType(MediaType.APPLICATION_JSON).content(SUBMIT.replace("a@b.com", "other@b.com")))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/v1/notifications").with(a).header("Idempotency-Key", "k-9")
+                .contentType(MediaType.APPLICATION_JSON).content(SUBMIT.replace("Ada", "Grace")))
+                .andExpect(status().isConflict());
+        // variable order does not matter
+        String two = "{\"channel\":\"EMAIL\",\"templateName\":\"welcome\",\"recipient\":\"a@b.com\",\"variables\":{\"name\":\"Ada\",\"x\":\"1\"}}";
+        String twoSwapped = "{\"channel\":\"EMAIL\",\"templateName\":\"welcome\",\"recipient\":\"a@b.com\",\"variables\":{\"x\":\"1\",\"name\":\"Ada\"}}";
+        mvc.perform(post("/api/v1/notifications").with(a).header("Idempotency-Key", "k-10")
+                .contentType(MediaType.APPLICATION_JSON).content(two)).andExpect(status().isAccepted());
+        mvc.perform(post("/api/v1/notifications").with(a).header("Idempotency-Key", "k-10")
+                .contentType(MediaType.APPLICATION_JSON).content(twoSwapped)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.page.totalElements").value(2));
+    }
+
+    @Test
     void validationErrorsAreClear() throws Exception {
         RequestPostProcessor a = createTenant("valid");
         createTemplate(a);

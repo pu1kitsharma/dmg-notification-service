@@ -9,11 +9,16 @@ import com.dmg.notify.template.TemplateRenderer;
 import com.dmg.notify.template.TemplateService;
 import com.dmg.notify.tenant.Tenant;
 import com.dmg.notify.tenant.TenantRepository;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -63,9 +68,10 @@ public class NotificationService {
      */
     public SubmitResult submit(long tenantId, SubmitRequest req, String idempotencyKey) {
         String key = normalizeKey(idempotencyKey);
+        String hash = key == null ? null : fingerprint(req);
         if (key != null) {
             var existing = notifications.findByTenantIdAndIdempotencyKey(tenantId, key);
-            if (existing.isPresent()) return new SubmitResult(existing.get(), false);
+            if (existing.isPresent()) return replay(existing.get(), hash);
         }
         Tenant tenant = tenants.findById(tenantId).orElseThrow(() -> new ApiException.NotFound("Tenant not found"));
         if (!tenant.isActive()) throw new ApiException.Forbidden("Tenant is deactivated");
@@ -83,6 +89,7 @@ public class NotificationService {
         String body = TemplateRenderer.render(template.getBody(), req.variables());
         Notification n = new Notification(tenantId, req.channel(), template.getId(), req.recipient(), subject, body,
                 key, req.scheduledAt(), now);
+        n.setRequestHash(hash);
         try {
             tx.executeWithoutResult(s -> {
                 notifications.saveAndFlush(n);
@@ -91,7 +98,7 @@ public class NotificationService {
             return new SubmitResult(n, true);
         } catch (DataIntegrityViolationException e) {
             if (key != null) { // lost a race with a concurrent submit carrying the same key
-                return new SubmitResult(notifications.findByTenantIdAndIdempotencyKey(tenantId, key).orElseThrow(), false);
+                return replay(notifications.findByTenantIdAndIdempotencyKey(tenantId, key).orElseThrow(), hash);
             }
             throw e;
         }
@@ -151,6 +158,29 @@ public class NotificationService {
     public Notification cancel(long tenantId, String id) { return state.cancel(id, tenantId); }
 
     public Notification replay(long tenantId, String id) { return state.replay(id, tenantId); }
+
+    /** Same key + same request = replay of the original; same key + different request = client bug, so 409. */
+    private static SubmitResult replay(Notification existing, String hash) {
+        if (existing.getRequestHash() != null && !existing.getRequestHash().equals(hash)) {
+            throw new ApiException.Conflict("Idempotency-Key was already used with a different request");
+        }
+        return new SubmitResult(existing, false);
+    }
+
+    /** SHA-256 over a canonical form of everything that determines the notification (variables sorted by name). */
+    static String fingerprint(SubmitRequest req) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(req.channel()).append('\u0000').append(req.templateName()).append('\u0000')
+                .append(req.recipient()).append('\u0000').append(req.scheduledAt()).append('\u0000');
+        if (req.variables() != null) {
+            new TreeMap<>(req.variables()).forEach((k, v) -> sb.append(k).append('=').append(v).append('\u0000'));
+        }
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(sb.toString().getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e); // SHA-256 is mandatory on every JVM
+        }
+    }
 
     private static String normalizeKey(String key) {
         if (key == null || key.isBlank()) return null;
