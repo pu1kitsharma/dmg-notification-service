@@ -82,15 +82,18 @@ public class Dispatcher {
         GlobalLimit global = globalLimits.findById(GlobalLimit.ID).orElseThrow();
 
         int dispatched = 0;
+        Set<ChannelType> saturated = EnumSet.noneOf(ChannelType.class); // pools are shared by all tenants
         for (Long tenantId : tenantIds) {
             Tenant tenant = tenantById.get(tenantId);
             if (tenant == null || !tenant.isActive()) continue;
             // rows of a channel the tenant admin disabled stay PENDING (resume on re-enable) and must not
             // occupy the batch, so they are excluded in the query instead of skipped afterwards
-            List<ChannelType> enabled = enabledChannels(tenantId);
+            // a saturated channel pool is excluded the same way, so it cannot block the tenant's other channels
+            List<ChannelType> enabled = enabledChannels(tenantId).stream().filter(c -> !saturated.contains(c)).toList();
             if (enabled.isEmpty()) continue;
             List<Notification> due = notifications.findDue(tenantId, enabled, now, PageRequest.of(0, props.batchPerTenant()));
             for (Notification n : due) {
+                if (saturated.contains(n.getChannel())) continue; // saturated earlier in this batch
                 if (!rateLimits.tryAcquire(tenantId, tenant.getRatePerSecond(), tenant.getBurst(),
                         global.getRatePerSecond(), global.getBurst())) {
                     break; // stays PENDING, picked up in a later cycle once tokens refill
@@ -107,7 +110,7 @@ public class Dispatcher {
                 } else {
                     state.release(id, "worker pool saturated; released");
                     rateLimits.refund(tenantId);
-                    break;
+                    saturated.add(n.getChannel()); // back off this channel only; other channels keep flowing
                 }
             }
         }
