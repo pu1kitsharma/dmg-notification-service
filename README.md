@@ -46,6 +46,8 @@ Recipients containing `fail-transient` / `fail-permanent` make the simulated pro
 | | `POST /api/v1/notifications` (202 new / 200 idempotent replay), `POST /api/v1/notifications/batch` (≤100 items, per-item outcome), `GET /api/v1/notifications?status=&channel=&from=&to=&page=&size=`, `GET /api/v1/notifications/{id}`, `POST /api/v1/notifications/{id}/cancel`, `POST /api/v1/notifications/{id}/replay` (DEAD only) |
 | | `GET /api/v1/reports/delivery?from=&to=&channel=` (totals, success rate, by channel/status, by template, top 5 dead-letter reasons) |
 
+Lists are paged as `{content:[...], page:{size,number,totalElements,totalPages}}` (stable DTO shape).
+
 Errors are RFC 7807 problem details: 400 validation, 401 unauthenticated, 403 wrong role/deactivated tenant, 404 not found (also for other tenants' data), 409 conflict, 422 template variables missing.
 
 ## Architecture

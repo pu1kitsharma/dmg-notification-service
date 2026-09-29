@@ -59,7 +59,7 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
         mvc.perform(get("/api/v1/notifications/" + id).with(a)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/notifications/" + id).with(b)).andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/notifications/" + id + "/cancel").with(b)).andExpect(status().isNotFound());
-        mvc.perform(get("/api/v1/notifications").with(b)).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get("/api/v1/notifications").with(b)).andExpect(jsonPath("$.page.totalElements").value(0));
     }
 
     @Test
@@ -75,7 +75,7 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
 
         assertThat(second.get("id").asText()).isEqualTo(first.get("id").asText());
-        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.page.totalElements").value(1));
     }
 
     @Test
@@ -170,10 +170,10 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
                 .content(SUBMIT.replace("a@b.com", "fail-permanent@x.com"))).andExpect(status().isAccepted());
         drain(4);
 
-        mvc.perform(get("/api/v1/notifications?status=DEAD").with(a)).andExpect(jsonPath("$.totalElements").value(1));
-        mvc.perform(get("/api/v1/notifications?channel=EMAIL").with(a)).andExpect(jsonPath("$.totalElements").value(2));
-        mvc.perform(get("/api/v1/notifications?channel=SMS").with(a)).andExpect(jsonPath("$.totalElements").value(0));
-        mvc.perform(get("/api/v1/notifications?to=2000-01-01T00:00:00Z").with(a)).andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get("/api/v1/notifications?status=DEAD").with(a)).andExpect(jsonPath("$.page.totalElements").value(1));
+        mvc.perform(get("/api/v1/notifications?channel=EMAIL").with(a)).andExpect(jsonPath("$.page.totalElements").value(2));
+        mvc.perform(get("/api/v1/notifications?channel=SMS").with(a)).andExpect(jsonPath("$.page.totalElements").value(0));
+        mvc.perform(get("/api/v1/notifications?to=2000-01-01T00:00:00Z").with(a)).andExpect(jsonPath("$.page.totalElements").value(0));
         mvc.perform(get("/api/v1/notifications?from=2999-01-01T00:00:00Z&to=2000-01-01T00:00:00Z").with(a))
                 .andExpect(status().isBadRequest());
     }
@@ -199,7 +199,7 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.results[1].id").exists())
                 .andExpect(jsonPath("$.results[3].status").value(404))
                 .andExpect(jsonPath("$.results[4].status").value(400));
-        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.totalElements").value(2));
+        mvc.perform(get("/api/v1/notifications").with(a)).andExpect(jsonPath("$.page.totalElements").value(2));
     }
 
     @Test
