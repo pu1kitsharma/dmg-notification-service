@@ -9,7 +9,7 @@ retries with exponential backoff, exactly-once *effect* on retry, and a persiste
 ## Run
 
 ```bash
-mvn test                # 39 tests
+mvn test                # unit + integration + concurrency + load tests
 mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
