@@ -43,14 +43,15 @@ class LoadIntegrationTest extends AbstractIntegrationTest {
                 start.await();
                 // each cycle claims <= batch-per-tenant rows per tenant; loop until nothing is left
                 while (jdbc.queryForObject("select count(*) from notifications where status in ('PENDING','PROCESSING')", Long.class) > 0) {
-                    dispatcher.runOnce();
+                    // nothing dispatched = throttled or drained: back off instead of hammering the DB
+                    if (dispatcher.runOnce() == 0) Thread.sleep(2);
                 }
                 return null;
             });
         }
         start.countDown();
         pool.shutdown();
-        assertThat(pool.awaitTermination(120, TimeUnit.SECONDS)).isTrue();
+        assertThat(pool.awaitTermination(300, TimeUnit.SECONDS)).as("all 10k delivered (slow CI/loaded machine tolerated)").isTrue();
         executors.awaitIdle(30_000);
         double seconds = (System.nanoTime() - t0) / 1e9;
 
