@@ -37,6 +37,11 @@ public final class TokenBucket {
         }
     }
 
+    /** Returns one permit taken by {@link #tryAcquire()} that ended up unused (lock-free, safe under contention). */
+    public void release() {
+        tat.updateAndGet(t -> t == Long.MIN_VALUE ? t : t - intervalNanos);
+    }
+
     public boolean hasSameConfig(int ratePerSecond, int burst) {
         return this.ratePerSecond == ratePerSecond && this.burst == burst;
     }

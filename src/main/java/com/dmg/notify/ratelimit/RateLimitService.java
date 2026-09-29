@@ -26,6 +26,16 @@ public class RateLimitService {
         if (!tb.tryAcquire()) return false;
         TokenBucket gb = globalBucket.updateAndGet(b ->
                 b != null && b.hasSameConfig(globalRate, globalBurst) ? b : new TokenBucket(globalRate, globalBurst, nanoClock));
-        return gb.tryAcquire();
+        if (gb.tryAcquire()) return true;
+        tb.release(); // global rejection must not cost the tenant a token
+        return false;
+    }
+
+    /** Give back the permits of a successful {@link #tryAcquire} that was not used (lost claim, pool saturated). */
+    public void refund(long tenantId) {
+        TokenBucket tb = tenantBuckets.get(tenantId);
+        if (tb != null) tb.release();
+        TokenBucket gb = globalBucket.get();
+        if (gb != null) gb.release();
     }
 }

@@ -32,6 +32,58 @@ class TokenBucketTest {
     }
 
     @Test
+    void releasedPermitCanBeAcquiredAgain() {
+        AtomicLong clock = new AtomicLong(0);
+        TokenBucket b = new TokenBucket(10, 2, clock::get);
+        assertThat(b.tryAcquire()).isTrue();
+        assertThat(b.tryAcquire()).isTrue();
+        assertThat(b.tryAcquire()).isFalse();
+        b.release();
+        assertThat(b.tryAcquire()).isTrue();
+        assertThat(b.tryAcquire()).isFalse();
+    }
+
+    @Test
+    void globalRejectionDoesNotBurnTenantTokens() {
+        AtomicLong clock = new AtomicLong(0);
+        RateLimitService svc = new RateLimitService(clock::get);
+        // tenant burst 3, global burst 1: first call consumes the only global permit
+        assertThat(svc.tryAcquire(1, 1, 3, 10, 1)).isTrue();
+        for (int i = 0; i < 5; i++) assertThat(svc.tryAcquire(1, 1, 3, 10, 1)).isFalse();
+        // once global refills, the tenant still has its remaining 2 tokens (they were refunded, not burnt)
+        clock.addAndGet(100_000_000L);
+        assertThat(svc.tryAcquire(1, 1, 3, 10, 1)).isTrue();
+        clock.addAndGet(100_000_000L);
+        assertThat(svc.tryAcquire(1, 1, 3, 10, 1)).isTrue();
+        clock.addAndGet(100_000_000L);
+        assertThat(svc.tryAcquire(1, 1, 3, 10, 1)).isFalse(); // now the tenant's burst of 3 is really used up
+    }
+
+    @Test
+    void concurrentReleaseAndAcquireNeverExceedsBurst() throws Exception {
+        int burst = 20;
+        TokenBucket b = new TokenBucket(1000, burst, new AtomicLong(7)::get);
+        AtomicInteger net = new AtomicInteger(); // acquired - released
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        for (int t = 0; t < 8; t++) {
+            pool.submit(() -> {
+                start.await();
+                for (int i = 0; i < 500; i++) {
+                    if (b.tryAcquire()) {
+                        if (i % 2 == 0) b.release(); else net.incrementAndGet();
+                    }
+                }
+                return null;
+            });
+        }
+        start.countDown();
+        pool.shutdown();
+        assertThat(pool.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        assertThat(net.get()).isEqualTo(burst); // refunds recycle permits, but net kept permits == burst
+    }
+
+    @Test
     void neverExceedsBurstUnderContention() throws Exception {
         int burst = 50;
         AtomicLong frozen = new AtomicLong(42);

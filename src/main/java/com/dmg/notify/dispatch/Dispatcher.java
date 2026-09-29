@@ -83,13 +83,17 @@ public class Dispatcher {
                     break; // stays PENDING, picked up in a later cycle once tokens refill
                 }
                 var attempt = state.claim(n.getId(), now, now.plusSeconds(props.leaseSeconds()));
-                if (attempt.isEmpty()) continue; // another dispatcher won it
+                if (attempt.isEmpty()) { // another dispatcher won it; the permits are unused
+                    rateLimits.refund(tenantId);
+                    continue;
+                }
                 String id = n.getId();
                 int attemptNo = attempt.get();
                 if (executors.trySubmit(n.getChannel(), () -> worker.deliver(id, attemptNo))) {
                     dispatched++;
                 } else {
                     state.release(id, "worker pool saturated; released");
+                    rateLimits.refund(tenantId);
                     break;
                 }
             }
