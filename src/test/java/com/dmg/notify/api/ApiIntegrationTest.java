@@ -79,6 +79,37 @@ class ApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void deactivatedTenantIsReadOnlyForItsAdmin() throws Exception {
+        RequestPostProcessor a = createTenant("ro");
+        createTemplate(a);
+        String id = json.readTree(mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content(SUBMIT.replace("a@b.com", "later@b.com").replace("}}", "},\"scheduledAt\":\"" + java.time.Instant.now().plus(java.time.Duration.ofDays(30)) + "\"}")))
+                .andReturn().getResponse().getContentAsString()).path("id").asText();
+        String tenantId = json.readTree(mvc.perform(get("/api/v1/tenants").with(platform)).andReturn().getResponse()
+                .getContentAsString()).get(0).get("id").asText();
+        mvc.perform(patch("/api/v1/tenants/" + tenantId).with(platform).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"active\":false}")).andExpect(status().isOk());
+
+        // every mutation is refused ...
+        mvc.perform(post("/api/v1/templates").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"x\",\"channel\":\"EMAIL\",\"body\":\"b\"}")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/v1/channels/EMAIL").with(a).contentType(MediaType.APPLICATION_JSON).content("{\"enabled\":false}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/notifications").with(a).contentType(MediaType.APPLICATION_JSON).content(SUBMIT))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/notifications/batch").with(a).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[{\"notification\":" + SUBMIT + "}]}")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/notifications/" + id + "/cancel").with(a)).andExpect(status().isForbidden());
+        // ... reads still work (audit access), and the platform admin can reactivate
+        mvc.perform(get("/api/v1/notifications/" + id).with(a)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/templates").with(a)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/reports/delivery").with(a)).andExpect(status().isOk());
+        mvc.perform(patch("/api/v1/tenants/" + tenantId).with(platform).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"active\":true}")).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/notifications/" + id + "/cancel").with(a)).andExpect(status().isOk());
+    }
+
+    @Test
     void renderedTextLongerThanTheColumnsIsA422NotA500() throws Exception {
         RequestPostProcessor a = createTenant("longvar");
         createTemplate(a);
