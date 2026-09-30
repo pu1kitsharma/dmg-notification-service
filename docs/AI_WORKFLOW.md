@@ -23,7 +23,7 @@ A second audit listed *unverified claims* and *weak spots*. It was turned into a
 - Idempotency key reuse with a different payload silently returned the old notification.
 
 ## 5. Verification, not just generation
-- `mvn test` after every change (63 tests: unit, Spring integration, multi-threaded, load; also run on PostgreSQL 16).
+- `mvn test` after every change (64 tests: unit, Spring integration, multi-threaded, load; also run on PostgreSQL 16).
 - The app was actually started and exercised end to end with `docs/smoke.sh` (this caught a quoting bug in the script itself).
 - New regression tests were checked to fail against the old behaviour (e.g. the saturated-pool test fails on the old dispatcher).
 - A load-test failure that appeared during the work was investigated instead of retried away: 3 of the first 5 runs timed out at 120 s on a machine with load average ~30, with no exceptions and no expired leases in the logs. Conclusion: CPU starvation plus four dispatcher threads busy-spinning while the global rate limit throttled them. The test now backs off when a cycle dispatches nothing and allows a longer timeout. The hang could not be reproduced afterwards (10+ clean runs); that conclusion is an inference, not a proof.
@@ -42,6 +42,7 @@ An external reviewer ran the suite and the scripts and reported five bugs, two m
 - **Not reproduced:** the reported correlated retry jitter. On JDK 17 (Temurin and Corretto) and 23 a `ThreadLocalRandom` captured once still gave every fresh thread an independent sequence. It violates the class's documented contract, so it was changed to call `current()` per use, but it is committed as a refactor with a guard test, not as a bug fix.
 - **Additions from the review:** cross-tenant report for platform admins, template dry-run preview, OpenAPI/Swagger UI.
 - **Found while re-running everything on Postgres:** two test-isolation races (straggler workers from a previous test class writing rows during the next class's cleanup); fixed in the tests.
+- **Found in a second verification pass (Java 17 + Postgres 16):** concurrent first-time `PUT /channels/{type}` for the same tenant raced on `uq_channel_cfg` (4 of 40 live requests got 409). Reproduced by a 16-thread test (8 of 16 failed on H2), fixed with the same per-tenant row lock as templates.
 
 ## 6. What the AI did not decide
 Scope, the trade-offs listed in README "Assumptions", and what to leave out (broker, Redis, real providers, user management) were choices made with the author; the assistant proposed options and the author approved the plan. Claims that were not verified are labelled as such in the README (e.g. Postgres was reviewed but only exercised on H2).

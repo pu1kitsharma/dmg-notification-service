@@ -14,7 +14,7 @@ mvn spring-boot:run     # http://localhost:8080, in-memory H2
 ```
 
 A platform admin is seeded on startup: `admin` / `admin12345` (override with `APP_BOOTSTRAP_ADMIN_PASSWORD`).
-For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Verified on PostgreSQL 16**: Flyway migrations V1–V3 apply, Hibernate schema validation passes, all 63 tests pass, the 167-check end-to-end script passes, and the crash-recovery scenarios pass. (Running on Postgres needs the `flyway-database-postgresql` module, which is a dependency; it was missing at first and only a real Postgres run caught that.)
+For PostgreSQL set `spring.datasource.url/username/password`. The migrations and queries use only standard SQL/JPQL (reviewed by hand: no vendor functions, identity columns, `timestamptz`), and the claim compare-and-set relies on READ COMMITTED (Postgres default). **Verified on PostgreSQL 16**: Flyway migrations V1–V3 apply, Hibernate schema validation passes, all 64 tests pass, the 167-check end-to-end script passes, and the crash-recovery scenarios pass. (Running on Postgres needs the `flyway-database-postgresql` module, which is a dependency; it was missing at first and only a real Postgres run caught that.)
 
 ## Quick tour
 
@@ -107,10 +107,10 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 17. A send that ignores thread interruption can still pin a pool thread after the watchdog fires; this is bounded by the pool size and is the reason providers should use client-side timeouts too. The lease is renewed when a worker starts, so queue wait does not count against it.
 18. A deactivated tenant is read-only: its admin can still read notifications, reports and templates and run previews, but every mutating call (send, batch, cancel, replay, templates, channel config) is `403`; the platform admin re-activates it.
 19. Free-text values that can exceed a column (provider errors, audit reasons) are truncated with `…`; a *rendered* subject/body over 500/4000 chars is rejected with `422` at submit time (templates are validated at the same limits, but variables can grow the text).
-20. Concurrent creation of the same template name is serialised per tenant (row lock), so it yields consecutive versions instead of an error.
+20. Concurrent creation of the same template name is serialised per tenant (row lock), so it yields consecutive versions instead of an error. Channel config `PUT` is an idempotent upsert serialised the same way, so concurrent first-time PUTs of a channel all return 200 and leave one row.
 21. Report `successRate` = SENT / (SENT + DEAD); pending, in-flight and cancelled are excluded. `from` inclusive, `to` exclusive, on `createdAt`.
 
-## Testing (63 tests: unit + Spring integration + concurrency + load)
+## Testing (64 tests: unit + Spring integration + concurrency + load)
 
 | Area | Test |
 |---|---|
@@ -121,7 +121,7 @@ Key decisions (details in [docs/DESIGN.md](docs/DESIGN.md)):
 | Resilience | **saturated SMS pool does not block the same tenant's email**; **hung provider is interrupted, retried, pool thread freed, interrupt does not leak to the next task** |
 | Load | **10k notifications × 3 tenants × 4 concurrent dispatchers → each delivered exactly once (~900 msg/s on H2)**; light tenant finishes in ≤10 cycles behind a 3000-row heavy backlog; rate-limited tenant stays at burst + refill while a free tenant is unaffected |
 | API / RBAC | 401/403, cross-tenant isolation (404), idempotency-key replay + payload mismatch (409), validation (400/404/422/409), disabled channel / deactivated tenant, end-to-end + report (by template, top failures), list filters, batch, replay, template versioning |
-| Other | default-admin-password warning, failure-reason normalisation, token release/refund (incl. global rejection not burning tenant tokens) |
+| Other | **16 threads racing the first `PUT` of a channel config → all 200, one row**; default-admin-password warning, failure-reason normalisation, token release/refund (incl. global rejection not burning tenant tokens) |
 
 Time-dependent tests use a controllable clock (`MutableClock`) instead of sleeps.
 
